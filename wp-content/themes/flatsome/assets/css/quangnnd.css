@@ -1,0 +1,210 @@
+:root {
+  --mainColor: #030f34;
+  --secondColor: #125875;
+}
+.home-project-slider-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #555;
+}
+
+.home-project-slider-info p {
+  margin-bottom: 0;
+  color: #fff;
+  padding: 0 25px;
+  font-weight: 700;
+  text-transform: uppercase;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  height: 22px;
+  max-width: 75%;
+}
+.home-project-slider-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #555;
+}
+
+.home-project-slider-info p {
+  margin-bottom: 0;
+  color: #fff;
+  padding: 0 25px;
+  font-weight: 700;
+  text-transform: uppercase;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  height: 22px;
+  max-width: 75%;
+}
+.btn {
+  display: inline-block;
+  font-weight: 400;
+  line-height: 1.5;
+  color: #212529;
+  text-align: center;
+  text-decoration: none;
+  vertical-align: middle;
+  cursor: pointer;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+  background-color: #fff0;
+  border: 1px solid #fff0;
+  padding: 0.375rem 0.75rem;
+  font-size: 1rem;
+  border-radius: 0.25rem;
+  transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out,
+    border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+.btn-1 {
+  background-color: #aaabac;
+  color: #fff;
+  font-size: 15px;
+  padding: 8px 30px 10px;
+  border-radius: 0;
+  border: 1px solid transparent;
+  transition: 0.4s all;
+  font-weight: 700;
+}
+.sec_cong_trinh_tieu_bieu .col-inner > .img:not(:last-child) {
+  margin-bottom: 0;
+}
+.home-brochure-bg {
+  padding: 0 100px;
+  background-color: #555;
+  color: #fff;
+  position: relative;
+}
+
+.home-brochure-bg:before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 40%;
+  border-left: 15px solid #fff;
+  border-top: 15px solid #fff0;
+  border-bottom: 15px solid #fff0;
+}
+
+.home-brochure-bg:after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 40%;
+  border-right: 15px solid #fff;
+  border-top: 15px solid #fff0;
+  border-bottom: 15px solid #fff0;
+}
+
+.home-brochure-box {
+  padding: 35px 0;
+}
+
+.home-brochure-box p {
+  margin-bottom: 0;
+}
+
+.home-brochure-box strong {
+  text-transform: uppercase;
+  font-weight: 700;
+  font-size: 43px;
+}
+
+@media only screen and (min-width: 769px) and (max-width: 1440px) {
+  .home-brochure-box strong {
+    font-size: 40px;
+  }
+}
+
+@media only screen and (min-width: 769px) and (max-width: 1024px) {
+  .home-brochure-box strong {
+    font-size: 3vw;
+  }
+}
+
+.home-brochure-box .btn-1 {
+  padding-left: 35px;
+  padding-right: 35px;
+}
+.d-flex {
+  display: flex !important;
+}
+.justify-content-end {
+  justify-content: flex-end !important;
+}
+.align-items-center {
+  align-items: center !important;
+}
+.justify-content-between {
+  justify-content: space-between !important;
+}
+.footer ul li {
+  list-style: none;
+}
+.product-thumbnails img {
+  height: 150px;
+}
+.products-banner {
+  background: url(https://tostemvietnam.com/wp-content/themes/tostem/assets/images/product/banner.jpg)
+    top center no-repeat;
+  background-size: cover;
+  padding: 120px 0;
+}
+.t-title {
+  font-weight: 700;
+  font-size: 55px;
+  color: #231f20;
+  margin-bottom: 0;
+  line-height: 1.4;
+}
+.text-uppercase {
+  text-transform: uppercase !important;
+}
+.text-center {
+  text-align: center !important;
+}
+.contact-form-area {
+  background: linear-gradient(
+    125deg,
+    rgba(99, 171, 69, 0.1) 0%,
+    rgba(251, 176, 59, 0.1) 100%
+  );
+  border-radius: 10px;
+  padding: 60px 70px;
+}
+.mb-20 {
+  margin-bottom: 20px;
+}
+.primary-btn1 {
+  border-radius: 5px;
+  background-color: var(--mainColor);
+  font-weight: 600;
+  font-size: 16px;
+  color: white;
+  letter-spacing: 0.48px;
+  text-transform: capitalize;
+  line-height: 1;
+  padding: 16px 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  transition: 0.5s;
+  position: relative;
+  overflow: hidden;
+  z-index: 1;
+  white-space: nowrap;
+}
+.header-bottom {
+  background-color: var(--mainColor) !important;
+}
+.header-bottom ul li a {
+  color: white;
+}
