@@ -42,11 +42,11 @@ if ($attachment_ids || $render_without_attachments) {
 
 	$gallery_thumbnail = wc_get_image_size(apply_filters('woocommerce_gallery_thumbnail_size', 'woocommerce_' . $image_size));
 
-	if ($thumb_count < 5) {
+	if ($thumb_count < 4) {
 		$gallery_class[] = 'slider-no-arrows';
 	}
 
-	$gallery_class[] = 'slider row row-small row-slider slider-nav-small small-columns-4';
+	$gallery_class[] = 'slider row row-small row-slider slider-nav-small small-columns-3';
 	$gallery_class   = apply_filters('flatsome_single_product_thumbnails_classes', $gallery_class);
 ?>
 	<div class="<?php echo implode(' ', $gallery_class); ?>"

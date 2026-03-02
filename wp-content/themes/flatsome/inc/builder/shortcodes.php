@@ -88,4 +88,7 @@ if ( class_exists( 'WooCommerce' ) ) {
 	if ( ( $is_product && flatsome_product_block( $post->ID ) ) || $is_rendering || $is_saving || $is_copying_shortcode ) {
 		require_once __DIR__ . '/shortcodes/custom-product.php';
 	}
+
+	// Custom: Rem Category Grid element
+	require_once __DIR__ . '/shortcodes/rem_category_grid.php';
 }
