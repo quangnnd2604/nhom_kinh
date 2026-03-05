@@ -285,6 +285,77 @@ function techzhome_contact_button() {
 }
 
 /**
+ * =============================================
+ * FLOATING HOTLINE BUTTONS (Bottom-Right)
+ * Zalo | Phone | Email
+ * =============================================
+ */
+function techzhome_floating_buttons() {
+    $hotline = get_option('techzhome_hotline', '');
+    $email   = get_option('techzhome_email', '');
+    // Zalo: use dedicated Zalo number; fallback to hotline number if blank
+    $zalo_raw = get_option('techzhome_zalo', '');
+    $zalo     = !empty(trim($zalo_raw)) ? $zalo_raw : $hotline;
+
+    // Clean phone number for tel: link (remove all non-numeric except +)
+    $hotline_clean = preg_replace('/[^0-9+]/', '', $hotline);
+    // Clean zalo number
+    $zalo_clean    = preg_replace('/[^0-9+]/', '', $zalo);
+    // Email: trim whitespace
+    $email = trim($email);
+
+    // Icon paths (uploaded to media)
+    $uploads_url = content_url('uploads/2026/03');
+    $icon_zalo   = $uploads_url . '/zalo-icon.png';
+    $icon_phone  = $uploads_url . '/phone-icon.png';
+    $icon_email  = $uploads_url . '/email-icon.png';
+    ?>
+    <!-- Floating Hotline Buttons -->
+    <div class="tz-float-wrap" id="tz-float-wrap">
+        <?php if (!empty($email)) : ?>
+        <div class="tz-float-item tz-float-email" style="--delay:0s">
+            <a href="mailto:<?php echo esc_attr($email); ?>" target="_blank" rel="noopener" title="Gửi email">
+                <img src="<?php echo esc_url($icon_email); ?>" alt="Email" />
+            </a>
+        </div>
+        <?php endif; ?>
+
+        <?php if (!empty($zalo_clean)) : ?>
+        <div class="tz-float-item tz-float-zalo" style="--delay:0.15s">
+            <a href="https://zalo.me/<?php echo esc_attr($zalo_clean); ?>" target="_blank" rel="noopener" title="Chat Zalo">
+                <img src="<?php echo esc_url($icon_zalo); ?>" alt="Zalo" />
+            </a>
+        </div>
+        <?php endif; ?>
+
+        <?php if (!empty($hotline_clean)) : ?>
+        <div class="tz-float-item tz-float-phone" style="--delay:0.3s">
+            <!-- Desktop: no tel link, just display -->
+            <a href="tel:<?php echo esc_attr($hotline_clean); ?>" class="tz-phone-link" title="Gọi hotline">
+                <img src="<?php echo esc_url($icon_phone); ?>" alt="Hotline" />
+                <span class="tz-phone-text"><?php echo esc_html($hotline); ?></span>
+            </a>
+        </div>
+        <?php endif; ?>
+    </div>
+    <script>
+    (function() {
+        var phoneLink = document.querySelector('.tz-float-phone .tz-phone-link');
+        if (phoneLink) {
+            phoneLink.addEventListener('click', function(e) {
+                // Only allow tel: call on mobile (≤ 768px)
+                if (window.innerWidth > 768) {
+                    e.preventDefault();
+                }
+            });
+        }
+    })();
+    </script>
+    <?php
+}
+add_action('wp_footer', 'techzhome_floating_buttons');
+
+/**
  * It's not recommended to add any custom code here. Please use a child theme
  * so that your customizations aren't lost during updates.
  *
