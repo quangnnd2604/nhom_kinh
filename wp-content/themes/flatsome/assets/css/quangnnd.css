@@ -659,8 +659,7 @@ h2.t-title::after {
   position: relative;
   display: flex;
   flex-direction: column;
-  height: 100%;
-  /* Ensures all cards stretch equally in CSS Grid */
+  /* height: auto — card grows with content (image + title) */
   border-radius: 12px;
   overflow: hidden;
   text-decoration: none !important;
@@ -677,18 +676,7 @@ h2.t-title::after {
   border-color: rgba(212, 168, 83, 0.25);
 }
 
-/* Overflow wrapper for image zoom */
-.rem-cat-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  padding-top: 70%;
-  /* Image container aspect ratio */
-  overflow: hidden;
-  z-index: 0;
-}
+/* Removed ::before pseudo-element — it was overlapping card content on iOS */
 
 /* Background Image (4:3 aspect ratio perfectly maintained) */
 .rem-cat-card-bg {
@@ -835,31 +823,95 @@ h2.t-title::after {
 }
 
 /* --- Responsive --- */
+
+/* Tablet: <= 849px → 2 cột */
 @media only screen and (max-width: 849px) {
-  .rem-cat-cols-3 {
+
+  .rem-cat-cols-3,
+  .rem-cat-cols-4 {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .rem-cat-card {
-    height: 180px;
+  .rem-cat-grid {
+    gap: 16px;
+  }
+
+  .rem-cat-card-bg {
+    padding-top: 65%;
+  }
+
+  .rem-cat-card-content {
+    padding: 14px 12px;
+  }
+
+  .rem-cat-card-title {
+    font-size: 15px;
+    margin-bottom: 4px;
+  }
+
+  .rem-cat-card-btn {
+    font-size: 11px;
   }
 
   .rem-cat-title {
-    font-size: 26px;
-  }
-}
-
-@media only screen and (max-width: 549px) {
-  .rem-cat-cols-3 {
-    grid-template-columns: 1fr;
+    font-size: 24px;
   }
 
-  .rem-cat-card {
-    height: 200px;
+  .rem-cat-header {
+    margin-bottom: 24px;
   }
 
   .rem-cat-section {
-    padding: 30px 15px 40px;
+    margin-bottom: 40px;
+  }
+}
+
+/* Mobile: <= 549px → vẫn 2 cột, dày hơn một chút */
+@media only screen and (max-width: 549px) {
+
+  .rem-cat-cols-2,
+  .rem-cat-cols-3,
+  .rem-cat-cols-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .rem-cat-grid {
+    gap: 10px;
+  }
+
+  .rem-cat-card-bg {
+    padding-top: 70%;
+  }
+
+  .rem-cat-card-content {
+    padding: 10px 6px;
+    min-height: 44px;
+  }
+
+  .rem-cat-card-title {
+    font-size: 11px;
+    letter-spacing: 0;
+    margin-bottom: 0;
+    line-height: 1.3;
+    word-break: break-word;
+  }
+
+  .rem-cat-card-btn {
+    display: none;
+  }
+
+  .rem-cat-title {
+    font-size: 20px;
+  }
+
+  .rem-cat-section {
+    padding: 0 0 30px;
+    margin-bottom: 30px;
+  }
+
+  .rem-cat-view-all {
+    padding: 10px 24px;
+    font-size: 13px;
   }
 }
 
