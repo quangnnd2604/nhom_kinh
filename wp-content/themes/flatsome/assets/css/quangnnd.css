@@ -1,6 +1,19 @@
+/* =============================================
+   CUSTOM FONTS
+   ============================================= */
+@font-face {
+  font-family: 'UTMAvoBold';
+  src: url('../fonts/UTMAvoBold.woff2') format('woff2'),
+       url('../fonts/UTMAvoBold.ttf') format('truetype');
+  font-weight: bold;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --mainColor: #030f34;
   --secondColor: #125875;
+  --subColor: #d02740;
 }
 
 /* =============================================
@@ -78,7 +91,7 @@
 }
 
 .sec_cong_trinh_tieu_bieu .col-inner:hover .home-project-slider-name {
-  color: #d4a853;
+  color: var(--subColor);
 }
 
 .home-project-slider-info .btn-1 {
@@ -128,7 +141,7 @@
 }
 
 .btn-1 {
-  background: linear-gradient(135deg, #d4a853, #c4933f);
+  background: linear-gradient(135deg, var(--subColor), #c4933f);
   color: #fff !important;
   font-size: 15px;
   padding: 12px 32px;
@@ -267,15 +280,11 @@
 /* =============================================
    GLOBAL SECTIONS & TITLES
    ============================================= */
-/* Add breathing room to sections */
-.section {
-  padding-top: 60px !important;
-  padding-bottom: 60px !important;
-}
+
 
 /* Section Titles (used in Homepage) */
 h2.t-title {
-  font-weight: 800 !important;
+  font-weight: bold;
   font-size: 36px !important;
   color: var(--mainColor) !important;
   letter-spacing: -0.5px;
@@ -294,7 +303,7 @@ h2.t-title::after {
   transform: translateX(-50%);
   width: 80px;
   height: 4px;
-  background: linear-gradient(90deg, transparent, #d4a853, transparent);
+  background: linear-gradient(90deg, transparent, var(--subColor), transparent);
   border-radius: 2px;
 }
 
@@ -354,7 +363,7 @@ h2.t-title::after {
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 2px;
-  color: #d4a853;
+  color: var(--subColor);
   /* gold */
   margin-bottom: 15px;
   text-transform: uppercase;
@@ -482,8 +491,8 @@ h2.t-title::after {
 }
 
 .header-bottom .nav-dropdown>li>a:hover {
-  color: #d4a853 !important;
-  border-bottom-color: #d4a853;
+  color: var(--subColor) !important;
+  border-bottom-color: var(--subColor);
   background-color: rgba(255, 255, 255, 0.05) !important;
 }
 
@@ -538,13 +547,13 @@ h2.t-title::after {
 }
 
 .header-bottom .nav-dropdown .nav-column li a:hover {
-  color: #d4a853 !important;
+  color: var(--subColor) !important;
   background-color: rgba(255, 255, 255, 0.05) !important;
   padding-left: 34px !important;
 }
 
 .header-bottom .nav-dropdown .nav-column li a:hover::before {
-  background-color: #d4a853;
+  background-color: var(--subColor);
   width: 6px;
   height: 6px;
 }
@@ -570,7 +579,7 @@ h2.t-title::after {
 
 /* --- Active/hover state for top-level menu items --- */
 .header-bottom .nav>li>a.nav-top-link:hover {
-  color: #d4a853 !important;
+  color: var(--subColor) !important;
 }
 
 /* --- Division line between columns --- */
@@ -622,7 +631,7 @@ h2.t-title::after {
 
 .rem-cat-title {
   font-size: 30px;
-  font-weight: 800;
+  font-weight: bold;
   text-transform: uppercase;
   color: var(--mainColor);
   margin-bottom: 12px;
@@ -632,7 +641,7 @@ h2.t-title::after {
 .rem-cat-title-line {
   width: 60px;
   height: 3px;
-  background: linear-gradient(90deg, transparent, #d4a853, transparent);
+  background: linear-gradient(90deg, transparent, var(--subColor), transparent);
   margin: 0 auto;
 }
 
@@ -726,7 +735,7 @@ h2.t-title::after {
 }
 
 .rem-cat-card:hover .rem-cat-card-title {
-  color: #d4a853;
+  color: var(--subColor);
 }
 
 .rem-cat-card-btn {
@@ -756,7 +765,7 @@ h2.t-title::after {
 .rem-cat-card:hover .rem-cat-card-btn::after {
   opacity: 1;
   transform: translateX(0);
-  color: #d4a853;
+  color: var(--subColor);
 }
 
 /* Top accent line on hover */
@@ -767,7 +776,7 @@ h2.t-title::after {
   left: 0;
   width: 100%;
   height: 4px;
-  background: linear-gradient(90deg, #d4a853, #125875);
+  background: linear-gradient(90deg, var(--subColor), #125875);
   opacity: 0;
   transform: scaleX(0);
   transition: all 0.4s ease;
@@ -808,7 +817,7 @@ h2.t-title::after {
 }
 
 .rem-cat-view-all:hover {
-  background-color: #d4a853;
+  background-color: var(--subColor);
   color: #ffffff !important;
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(212, 168, 83, 0.4);
@@ -919,7 +928,7 @@ h2.t-title::after {
    PRODUCT PAGE — Premium Redesign
    Color Palette:
    - Primary Navy:  #030f34
-   - Gold Accent:   #d4a853
+   - Gold Accent:   var(--subColor)
    - Rich Teal:     #125875
    - Warm Cream:    #faf6ef
    - Success Green: #2ecc71
@@ -1024,7 +1033,7 @@ h2.t-title::after {
 
 .product-images+.product-thumbnails .col.is-nav-selected a,
 .product-images+.product-thumbnails .col.first a {
-  border-color: #d4a853;
+  border-color: var(--subColor);
   box-shadow: 0 4px 16px rgba(212, 168, 83, 0.25);
 }
 
@@ -1065,7 +1074,7 @@ h2.t-title::after {
 
 .product-images+.product-thumbnails .flickity-prev-next-button:hover {
   opacity: 1;
-  background: #d4a853;
+  background: var(--subColor);
   box-shadow: 0 4px 14px rgba(212, 168, 83, 0.4);
 }
 
@@ -1096,7 +1105,7 @@ h2.t-title::after {
 }
 
 .single-product .woocommerce-breadcrumb a:hover {
-  color: #d4a853;
+  color: var(--subColor);
 }
 
 /* Product title */
@@ -1117,7 +1126,7 @@ h2.t-title::after {
   left: 0;
   width: 60px;
   height: 3px;
-  background: linear-gradient(90deg, #d4a853, #125875);
+  background: linear-gradient(90deg, var(--subColor), #125875);
   border-radius: 2px;
 }
 
@@ -1131,7 +1140,7 @@ h2.t-title::after {
   font-size: 15px;
   line-height: 1.7;
   color: #555;
-  border-left: 3px solid #d4a853;
+  border-left: 3px solid var(--subColor);
   padding-left: 16px;
   margin: 20px 0 24px;
   background: linear-gradient(90deg, rgba(212, 168, 83, 0.05), transparent);
@@ -1159,7 +1168,7 @@ h2.t-title::after {
 }
 
 .single-product .product_meta a:hover {
-  color: #d4a853;
+  color: var(--subColor);
 }
 
 /* Share icons */
@@ -1209,7 +1218,7 @@ h2.t-title::after {
   align-items: center;
   gap: 12px;
   padding: 15px 40px;
-  background: linear-gradient(135deg, #d4a853 0%, #c4933f 50%, #b8862e 100%);
+  background: linear-gradient(135deg, var(--subColor) 0%, #c4933f 50%, #b8862e 100%);
   color: #fff !important;
   font-size: 16px;
   font-weight: 700;
@@ -1353,7 +1362,7 @@ h2.t-title::after {
 }
 
 .techzhome-hotline-text a:hover {
-  color: #d4a853;
+  color: var(--subColor);
 }
 
 /* =============================================
@@ -1409,7 +1418,7 @@ h2.t-title::after {
   left: 0;
   right: 0;
   height: 4px;
-  background: linear-gradient(90deg, #d4a853, #125875, #d4a853);
+  background: linear-gradient(90deg, var(--subColor), #125875, var(--subColor));
   border-radius: 20px 20px 0 0;
 }
 
@@ -1432,7 +1441,7 @@ h2.t-title::after {
 
 .techzhome-popup-close:hover {
   background: #ffe8c2;
-  color: #d4a853;
+  color: var(--subColor);
   transform: rotate(90deg);
 }
 
@@ -1480,7 +1489,7 @@ h2.t-title::after {
 
 .techzhome-popup-form .wpcf7-form input:focus,
 .techzhome-popup-form .wpcf7-form textarea:focus {
-  border-color: #d4a853;
+  border-color: var(--subColor);
   background: #fff;
   outline: none;
   box-shadow: 0 0 0 3px rgba(212, 168, 83, 0.12);
@@ -1494,7 +1503,7 @@ h2.t-title::after {
 .techzhome-popup-form .wpcf7-form input[type="submit"] {
   width: 100%;
   padding: 14px;
-  background: linear-gradient(135deg, #d4a853, #c4933f);
+  background: linear-gradient(135deg, var(--subColor), #c4933f);
   color: #fff;
   font-size: 15px;
   font-weight: 700;
@@ -1663,7 +1672,7 @@ h2.t-title::after {
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, #125875, #d4a853, #125875);
+  background: linear-gradient(90deg, #125875, var(--subColor), #125875);
   background-size: 200% 100%;
   opacity: 0;
   transition: all 0.4s ease;
@@ -1688,11 +1697,11 @@ h2.t-title::after {
 /* Product Categories */
 .box-text .category {
   font-size: 12px;
-  color: #888;
+  font-weight: bold;
+  color: black;
   letter-spacing: 0.5px;
   margin-bottom: 8px;
   text-transform: uppercase;
-  font-weight: 600;
 }
 
 /* Titles inside boxes */
@@ -1714,11 +1723,11 @@ h2.t-title::after {
 
 .box:hover .box-text-inner h5,
 .product-small:hover .product-title {
-  color: #d4a853;
+  color: var(--subColor);
 }
 
 .product-small:hover .product-title a {
-  color: #d4a853 !important;
+  color: var(--subColor) !important;
 }
 
 /* Price */
@@ -2150,4 +2159,12 @@ h2.t-title::after {
     left: 14px;
     gap: 10px;
   }
+}
+
+#menu-footer-about-us-vi li {
+  margin-left: 0;
+}
+
+ul.list-unstyled li {
+  margin-left: 0 !important;
 }

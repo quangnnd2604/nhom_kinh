@@ -1,0 +1,43 @@
+/* ── Frontend Language Switcher Styles ── */
+
+.mml-lang-switcher {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 8px;
+}
+
+.mml-lang-item {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none !important;
+    transition: all 0.2s ease-in-out;
+    opacity: 0.6;
+    border-radius: 3px;
+    padding: 2px;
+}
+
+.mml-lang-item:hover,
+.mml-lang-item.mml-active {
+    opacity: 1;
+    transform: scale(1.05);
+}
+
+.mml-lang-item.mml-active {
+    background-color: rgba(255,255,255,0.1); /* subtle highlight for active lang */
+    box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+}
+
+.mml-flag-img {
+    display: block;
+    border-radius: 2px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    object-fit: cover;
+    margin: 0 !important;
+}
+
+/* Optional wrapper for Flatsome Header */
+.header-nav .mml-lang-switcher {
+    margin-left: 10px;
+}

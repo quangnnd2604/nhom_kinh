@@ -22,6 +22,41 @@ function quangnnd_styles()
 }
 add_action('wp_enqueue_scripts', 'quangnnd_styles');
 
+/**
+ * UTMAvoBold - Đăng ký font vào Kirki Typography Customizer
+ *
+ * Kirki dùng AJAX endpoint wp_ajax_kirki_fonts_standard_all_get
+ * để lấy danh sách Standard Fonts cho font picker dropdown.
+ * Filter kirki_fonts_standard_fonts được gọi trong Kirki_Fonts::get_standard_fonts().
+ */
+function quangnnd_register_utm_standard_font( $fonts ) {
+    $fonts['UTMAvoBold'] = array(
+        'label' => 'UTM Avo Bold',
+        'stack' => 'UTMAvoBold, sans-serif',
+    );
+    return $fonts;
+}
+add_filter( 'kirki_fonts_standard_fonts', 'quangnnd_register_utm_standard_font' );
+
+// Cũng thêm vào kirki_fonts_all để Flatsome nhận ra font khi output CSS
+function quangnnd_register_custom_fonts( $fonts ) {
+    $fonts['UTMAvoBold'] = array(
+        'label'    => 'UTM Avo Bold',
+        'variants' => array( 'regular', '700' ),
+        'category' => 'sans-serif',
+    );
+    return $fonts;
+}
+add_filter( 'kirki_fonts_all', 'quangnnd_register_custom_fonts' );
+
+// Load font trong Customizer admin để preview chính xác
+function quangnnd_customizer_font_preview() {
+    wp_enqueue_style( 'utmavobold-font', get_template_directory_uri() . '/assets/css/quangnnd.css' );
+}
+add_action( 'customize_controls_enqueue_scripts', 'quangnnd_customizer_font_preview' );
+add_action( 'customize_preview_init', 'quangnnd_customizer_font_preview' );
+
+
 function bootstrap_styles()
 {
     wp_enqueue_style('bootstrap-css', 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css

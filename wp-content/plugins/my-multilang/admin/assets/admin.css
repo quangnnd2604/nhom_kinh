@@ -1,0 +1,226 @@
+/* ── My Multilang Admin Styles ─────────────────────────────────────────── */
+
+.mml-wrapper .mml-lang-table { max-width: 960px; }
+.mml-wrapper .mml-lang-table th,
+.mml-wrapper .mml-lang-table td { vertical-align: middle; }
+
+/* Default language star badge */
+.mml-default-star { font-size: 18px; color: #dba617; }
+
+/* Status icons in post list columns */
+.mml-status-plus {
+    display: inline-block;
+    font-size: 20px;
+    font-weight: 700;
+    color: #2271b1;
+    text-decoration: none;
+    line-height: 1;
+}
+.mml-status-plus:hover { color: #135e96; }
+
+.mml-status-check {
+    display: inline-block;
+    font-size: 16px;
+    color: #00a32a;
+    text-decoration: none;
+}
+
+.mml-status-draft {
+    display: inline-block;
+    font-size: 14px;
+    color: #dba617;
+    text-decoration: none;
+}
+
+/* ── Columns width fix on Post/Product list tables ── */
+th[id^="mml_lang_"] {
+    width: 60px;
+    text-align: center;
+}
+td[class*="column-mml_lang_"] {
+    text-align: center;
+}
+
+/* Add / Edit form box */
+.mml-form-box {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    padding: 20px 24px;
+    margin-top: 24px;
+    max-width: 700px;
+}
+.mml-form-box h2 {
+    margin-top: 0;
+    font-size: 1.1em;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 10px;
+    margin-bottom: 16px;
+}
+
+/* Flag preview in form */
+#mml-flag-preview { display: inline-block; vertical-align: middle; margin-right: 8px; min-width: 40px; }
+#mml-flag-preview img { vertical-align: middle; border: 1px solid #ddd; border-radius: 2px; }
+
+/* ── String Translation Table ─────────────────────────────────────── */
+
+.mml-table-scroll { overflow-x: auto; }
+
+.mml-strings-table { table-layout: auto !important; }
+.mml-strings-table th { background: #f0f0f1; }
+
+.mml-col-key { width: 140px; white-space: nowrap; }
+.mml-col-delete { width: 60px; text-align: center; }
+
+.mml-strings-table code {
+    display: block;
+    background: #f6f7f7;
+    padding: 3px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    word-break: break-all;
+}
+
+.mml-strings-table textarea {
+    width: 100%;
+    min-height: 60px;
+    font-size: 12px;
+    font-family: inherit;
+    border: 1px solid #8c8f94;
+    border-radius: 3px;
+    padding: 6px;
+    resize: vertical;
+    box-sizing: border-box;
+}
+.mml-strings-table textarea:focus { border-color: #2271b1; outline: none; box-shadow: 0 0 0 1px #2271b1; }
+
+.mml-default-badge { font-size: 10px; color: #646970; font-weight: normal; }
+
+.mml-delete-string-btn { background: none !important; border: none !important; cursor: pointer; font-size: 15px; padding: 2px !important; }
+.mml-delete-string-btn:hover { opacity: 0.7; }
+
+/* ── Modal ────────────────────────────────────────────────────────── */
+
+.mml-modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mml-modal {
+    background: #fff;
+    border-radius: 6px;
+    padding: 24px;
+    min-width: 380px;
+    max-width: 480px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+}
+.mml-modal h3 { margin-top: 0; }
+.mml-modal label { display: block; margin-bottom: 6px; font-weight: 600; }
+.mml-modal .regular-text { width: 100%; margin-bottom: 6px; }
+.mml-modal .description { color: #646970; font-size: 12px; margin-top: 4px; }
+
+.mml-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 18px;
+}
+
+/* ── Language Switcher (frontend) ────────────────────────────────── */
+
+.mml-lang-switcher {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.mml-lang {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    text-decoration: none;
+    color: #444;
+    font-size: 13px;
+    border: 1px solid #ddd;
+    transition: background 0.15s, border-color 0.15s;
+}
+.mml-lang:hover { background: #f0f0f0; border-color: #bbb; color: #222; }
+.mml-lang--active { background: #2271b1; color: #fff; border-color: #2271b1; }
+.mml-lang--active:hover { background: #135e96; color: #fff; }
+
+.mml-lang-name { line-height: 1; }
+
+/* ── Meta Box (Sidebar on Post/Page Edit) ────────────────────────── */
+
+.mml-meta-box-list {
+    margin: 0;
+    padding: 0;
+}
+.mml-meta-box-list li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f0f1;
+}
+.mml-meta-box-list li:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+.mml-mb-lang-name {
+    display: flex;
+    align-items: center;
+    font-size: 13px;
+}
+.mml-mb-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.mml-mb-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    text-decoration: none;
+    transition: all 0.15s;
+}
+.mml-mb-action-btn.mml-status-plus {
+    font-size: 18px;
+    color: #2271b1;
+}
+.mml-mb-action-btn.mml-status-plus:hover {
+    background: #f0f0f1;
+    border-color: #c3c4c7;
+    color: #135e96;
+}
+.mml-mb-action-btn.mml-status-check {
+    font-size: 14px;
+    color: #00a32a;
+}
+.mml-mb-action-btn.mml-status-check:hover {
+    background: #f0f0f1;
+    border-color: #c3c4c7;
+    color: #008a20;
+}
+.mml-mb-current {
+    font-size: 11px;
+    color: #646970;
+    font-weight: 500;
+    text-transform: uppercase;
+    background: #f0f0f1;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
