@@ -13,6 +13,14 @@ class MML_Strings {
     /** @var array Decoded translation values keyed [key][lang] */
     private static array $value_cache = [];
 
+    /**
+     * Flush in-memory caches (call after bulk mutations like restore or import).
+     */
+    public static function clear_cache(): void {
+        self::$cache       = null;
+        self::$value_cache = [];
+    }
+
     private static function table(): string {
         global $wpdb;
         return $wpdb->prefix . 'my_strings';
@@ -80,9 +88,10 @@ class MML_Strings {
      * Insert a new string key with empty translations.
      *
      * @param string $key
+     * @param bool   $is_autoscanned  Pass true when inserting via Smart Scan.
      * @return int|false
      */
-    public static function insert( string $key ) {
+    public static function insert( string $key, bool $is_autoscanned = false ) {
         global $wpdb;
         $key = preg_replace( '/[^a-z0-9_]/', '', strtolower( $key ) );
         if ( empty( $key ) ) {
@@ -91,12 +100,13 @@ class MML_Strings {
         $result = $wpdb->insert(
             self::table(),
             [
-                'string_key'   => $key,
-                'translations' => '{}',
+                'string_key'     => $key,
+                'translations'   => '{}',
+                'is_autoscanned' => $is_autoscanned ? 1 : 0,
             ],
-            [ '%s', '%s' ]
+            [ '%s', '%s', '%d' ]
         );
-        self::$cache      = null;
+        self::$cache       = null;
         self::$value_cache = [];
         return $result ? $wpdb->insert_id : false;
     }
@@ -134,5 +144,82 @@ class MML_Strings {
         self::$cache       = null;
         self::$value_cache = [];
         return (bool) $result;
+    }
+
+    /**
+     * Get a string row's ID by its key.
+     *
+     * @param string $key
+     * @return int|null
+     */
+    public static function get_id_by_key( string $key ): ?int {
+        foreach ( self::get_all() as $row ) {
+            if ( $row->string_key === $key ) {
+                return (int) $row->id;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Insert or get the ID of a string key (manual add — is_autoscanned = 0).
+     * Used by Smart Scan to register new keys without duplicating.
+     *
+     * @param string $key
+     * @param string $vi_text  Default language (VI) value.
+     * @return int|false
+     */
+    public static function upsert( string $key, string $vi_text ) {
+        return self::upsert_with_flag( $key, $vi_text, false );
+    }
+
+    /**
+     * Insert or get the ID of a string key registered by the auto-scanner
+     * (is_autoscanned = 1). Does NOT overwrite the flag if the key already
+     * exists — the existing row keeps whatever flag it had.
+     *
+     * @param string $key
+     * @param string $vi_text
+     * @return int|false
+     */
+    public static function upsert_autoscanned( string $key, string $vi_text ) {
+        return self::upsert_with_flag( $key, $vi_text, true );
+    }
+
+    /**
+     * Shared insert-or-fetch logic.
+     *
+     * @param string $key
+     * @param string $vi_text
+     * @param bool   $is_autoscanned
+     * @return int|false
+     */
+    private static function upsert_with_flag( string $key, string $vi_text, bool $is_autoscanned ) {
+        $existing_id = self::get_id_by_key( $key );
+        if ( $existing_id ) {
+            return $existing_id;
+        }
+        $new_id = self::insert( $key, $is_autoscanned );
+        if ( ! $new_id ) {
+            return false;
+        }
+        $default_lang = MML_Languages::get_default_code();
+        self::update( $new_id, wp_json_encode( [ $default_lang => $vi_text ], JSON_UNESCAPED_UNICODE ) );
+        return $new_id;
+    }
+
+    /**
+     * Check if a string key was created by the auto-scanner.
+     *
+     * @param string $key
+     * @return bool
+     */
+    public static function is_autoscanned( string $key ): bool {
+        foreach ( self::get_all() as $row ) {
+            if ( $row->string_key === $key ) {
+                return (bool) ( $row->is_autoscanned ?? 0 );
+            }
+        }
+        return false;
     }
 }

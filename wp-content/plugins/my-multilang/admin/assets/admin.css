@@ -224,3 +224,173 @@ td[class*="column-mml_lang_"] {
     padding: 2px 6px;
     border-radius: 3px;
 }
+
+/* ── Smart Scan & Refactor Page ──────────────────────────────────── */
+
+.mml-scanner-wrap { max-width: 960px; }
+
+.mml-card {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+}
+.mml-card h2 {
+    margin-top: 0;
+    font-size: 1.05em;
+    border-bottom: 1px solid #f0f0f1;
+    padding-bottom: 10px;
+    margin-bottom: 16px;
+}
+.mml-card p { margin-top: 0; color: #3c434a; }
+
+/* Progress bar */
+.mml-progress-bar-track {
+    background: #f0f0f1;
+    border-radius: 3px;
+    height: 12px;
+    overflow: hidden;
+    margin: 8px 0 6px;
+}
+.mml-progress-bar {
+    background: #2271b1;
+    height: 100%;
+    width: 0%;
+    transition: width 0.3s ease;
+    border-radius: 3px;
+}
+#mml-scan-status { font-size: 13px; color: #646970; }
+
+/* Results toolbar */
+.mml-results-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0 10px;
+    border-bottom: 1px solid #f0f0f1;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+.mml-results-toolbar label { font-weight: 600; font-size: 13px; margin: 0; }
+#mml-selected-count { font-weight: 700; color: #2271b1; }
+
+/* Results table */
+.mml-results-table { table-layout: fixed; width: 100%; }
+.mml-results-table th { background: #f6f7f7; font-size: 12px; padding: 6px 10px; }
+.mml-results-table td { padding: 6px 10px; vertical-align: top; font-size: 13px; }
+.mml-results-table .col-cb    { width: 32px; text-align: center; }
+.mml-results-table .col-text  { width: 38%; }
+.mml-results-table .col-key   { width: 26%; }
+.mml-results-table .col-post  { width: auto; }
+.mml-col-original { color: #1d2327; word-break: break-word; line-height: 1.4; }
+
+.mml-key-input {
+    width: 100%;
+    font-size: 12px;
+    font-family: monospace;
+    border: 1px solid #8c8f94;
+    border-radius: 3px;
+    padding: 4px 6px;
+    box-sizing: border-box;
+}
+.mml-key-input:focus { border-color: #2271b1; outline: none; box-shadow: 0 0 0 1px #2271b1; }
+
+/* Option key badge in results table */
+.mml-option-badge {
+    display: inline-block;
+    background: #f0f0f1;
+    color: #2271b1;
+    font-size: 11px;
+    font-family: monospace;
+    padding: 2px 6px;
+    border-radius: 3px;
+    word-break: break-all;
+}
+
+/* UX Block source badge */
+.mml-ux-block-badge {
+    display: inline-block;
+    background: #fff3cd;
+    color: #7f5900;
+    font-size: 11px;
+    font-family: monospace;
+    padding: 2px 6px;
+    border-radius: 3px;
+    word-break: break-all;
+    border: 1px solid #f5c842;
+}
+
+/* WooCommerce / gettext source badge */
+.mml-gettext-badge {
+    display: inline-block;
+    background: #e8f5e9;
+    color: #1b5e20;
+    font-size: 11px;
+    font-family: monospace;
+    padding: 2px 6px;
+    border-radius: 3px;
+    word-break: break-all;
+    border: 1px solid #81c784;
+}
+
+/* Scan target checkboxes */
+.mml-scan-target-options {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+.mml-scan-target-label { font-size: 13px; color: #1d2327; margin-bottom: 2px; }
+.mml-target-check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #3c434a;
+    cursor: pointer;
+}
+.mml-target-check input { margin: 0; }
+
+/* Manual Add String form */
+.mml-manual-add-form { max-width: 600px; }
+.mml-manual-add-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 12px;
+}
+.mml-manual-add-row label { font-size: 13px; color: #1d2327; }
+.mml-manual-add-row .regular-text { width: 100%; max-width: 500px; }
+
+/* Process progress spinner */
+#mml-process-progress { font-size: 13px; color: #646970; padding: 6px 0; }
+#mml-process-progress .mml-progress-bar-track { position: relative; overflow: hidden; }
+#mml-process-progress .mml-progress-bar {
+    width: 40%;
+    animation: mml-slide 1.4s ease-in-out infinite;
+}
+@keyframes mml-slide {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(300%); }
+}
+
+/* Backup sessions list */
+#mml-sessions-list { margin-top: 8px; }
+.mml-session-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f0f1;
+    flex-wrap: wrap;
+}
+.mml-session-row:last-child { border-bottom: none; }
+.mml-session-label { flex: 1; color: #1d2327; font-size: 13px; min-width: 200px; }
+
+.mml-discard-btn { color: #d63638 !important; border-color: #d63638 !important; }
+.mml-discard-btn:hover { background: #d63638 !important; color: #fff !important; }
+
+.mml-danger-zone { border: 2px solid #d63638 !important; }
+
+

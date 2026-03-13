@@ -81,13 +81,14 @@ class MML_Languages {
         $result = $wpdb->insert(
             self::table(),
             [
-                'name'       => sanitize_text_field( $data['name'] ),
-                'code'       => sanitize_key( $data['code'] ),
-                'flag_id'    => absint( $data['flag_id'] ?? 0 ),
-                'is_default' => empty( $data['is_default'] ) ? 0 : 1,
-                'sort_order' => absint( $data['sort_order'] ?? 0 ),
+                'name'             => sanitize_text_field( $data['name'] ),
+                'code'             => sanitize_key( $data['code'] ),
+                'flag_id'          => absint( $data['flag_id'] ?? 0 ),
+                'is_default'       => empty( $data['is_default'] ) ? 0 : 1,
+                'sort_order'       => absint( $data['sort_order'] ?? 0 ),
+                'use_english_slug' => empty( $data['use_english_slug'] ) ? 0 : 1,
             ],
-            [ '%s', '%s', '%d', '%d', '%d' ]
+            [ '%s', '%s', '%d', '%d', '%d', '%d' ]
         );
 
         self::$cache = null; // invalidate cache
@@ -111,14 +112,15 @@ class MML_Languages {
         $result = $wpdb->update(
             self::table(),
             [
-                'name'       => sanitize_text_field( $data['name'] ),
-                'code'       => sanitize_key( $data['code'] ),
-                'flag_id'    => absint( $data['flag_id'] ?? 0 ),
-                'is_default' => empty( $data['is_default'] ) ? 0 : 1,
-                'sort_order' => absint( $data['sort_order'] ?? 0 ),
+                'name'             => sanitize_text_field( $data['name'] ),
+                'code'             => sanitize_key( $data['code'] ),
+                'flag_id'          => absint( $data['flag_id'] ?? 0 ),
+                'is_default'       => empty( $data['is_default'] ) ? 0 : 1,
+                'sort_order'       => absint( $data['sort_order'] ?? 0 ),
+                'use_english_slug' => empty( $data['use_english_slug'] ) ? 0 : 1,
             ],
             [ 'id' => $id ],
-            [ '%s', '%s', '%d', '%d', '%d' ],
+            [ '%s', '%s', '%d', '%d', '%d', '%d' ],
             [ '%d' ]
         );
 

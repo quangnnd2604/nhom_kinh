@@ -3,7 +3,7 @@
  * Plugin Name:  My Multilang
  * Plugin URI:   https://github.com/quangnnd2604/nhom_kinh
  * Description:  Custom lightweight multilingual plugin optimised for Flatsome + WooCommerce. No WPML, no Polylang.
- * Version:      1.0.0
+ * Version:      1.2.0
  * Author:       Nhóm Kính Dev
  * Text Domain:  my-multilang
  * Domain Path:  /languages
@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
-define( 'MML_VERSION', '1.0.0' );
+define( 'MML_VERSION', '1.2.0' );
 define( 'MML_PATH',    plugin_dir_path( __FILE__ ) );
 define( 'MML_URL',     plugin_dir_url( __FILE__ ) );
 
@@ -33,6 +33,9 @@ $mml_files = [
     MML_PATH . 'includes/class-mml-meta-box.php',
     MML_PATH . 'includes/class-mml-auto-translate.php',
     MML_PATH . 'includes/class-mml-magic-sync.php',
+    MML_PATH . 'includes/class-mml-scanner.php',
+    MML_PATH . 'includes/class-mml-backup.php',
+    MML_PATH . 'includes/class-mml-smart-scan.php',
     MML_PATH . 'test_gg.php',
 ];
 
@@ -49,6 +52,7 @@ if ( is_admin() ) {
         MML_PATH . 'admin/class-mml-list-table-strings.php',
         MML_PATH . 'admin/class-mml-post-columns.php',
         MML_PATH . 'admin/class-mml-magic-sync-ui.php',
+        MML_PATH . 'admin/class-mml-scanner-ui.php',
     ];
     foreach ( $mml_admin_files as $file ) {
         if ( file_exists( $file ) ) {
@@ -62,7 +66,45 @@ if ( is_admin() ) {
 // ── Activation / Deactivation ──────────────────────────────────────────────
 register_activation_hook( __FILE__, [ 'MML_Installer', 'activate' ] );
 register_deactivation_hook( __FILE__, 'flush_rewrite_rules' );
+// ── Schema upgrades on version change ──────────────────────────────────
+add_action( 'plugins_loaded', function () {
+    if ( get_option( 'mml_version' ) !== MML_VERSION ) {
+        MML_Installer::maybe_upgrade();
+        update_option( 'mml_version', MML_VERSION );
+    }
+}, 5 );
 
+// ── Self-healing: re-inject core strings deleted from DB ───────────────────
+// Runs on every admin page load. Checks whether the 5 core system strings
+// (3 WC result-count patterns + 2 rem_category_grid button labels) are present
+// in wp_my_strings. If any are missing they are re-seeded immediately so the
+// frontend never breaks. An admin notice is displayed once to inform the user.
+add_action( 'admin_init', function () {
+    $healed = MML_Installer::maybe_heal_wc_strings();
+    if ( $healed > 0 ) {
+        set_transient( 'mml_heal_notice', $healed, 60 );
+    }
+} );
+
+add_action( 'admin_notices', function () {
+    $healed = (int) get_transient( 'mml_heal_notice' );
+    if ( ! $healed ) {
+        return;
+    }
+    delete_transient( 'mml_heal_notice' );
+    $msg = sprintf(
+        /* translators: %d: number of strings restored */
+        _n(
+            '%d core WooCommerce translation pattern has been automatically restored. Please review the <a href="%s">String Translation</a> table.',
+            '%d core WooCommerce translation patterns have been automatically restored. Please review the <a href="%s">String Translation</a> table.',
+            $healed,
+            'my-multilang'
+        ),
+        $healed,
+        esc_url( admin_url( 'admin.php?page=mml-strings' ) )
+    );
+    echo '<div class="notice notice-warning is-dismissible"><p>' . wp_kses( $msg, [ 'a' => [ 'href' => [] ] ] ) . '</p></div>';
+} );
 // ── Cancel canonical redirect entirely when ?lang= is present ──────────────
 // WordPress redirect_canonical() skips redirect when filter returns falsy.
 // This ensures /home/?lang=en, /about/?lang=en etc. are never stripped.
@@ -122,6 +164,24 @@ function mml_detect_language(): void {
         }
     }
 
+    // 1.5. AJAX requests (WooCommerce fragments, wc-ajax calls) do not carry ?lang=
+    //      in their own URL. Extract it from the HTTP_REFERER instead — the browser
+    //      sends the page URL as the Referrer, which DOES contain ?lang=.
+    if ( ! $lang && defined( 'DOING_AJAX' ) && DOING_AJAX ) {
+        $referer = isset( $_SERVER['HTTP_REFERER'] )
+            ? sanitize_url( wp_unslash( $_SERVER['HTTP_REFERER'] ) ) // phpcs:ignore
+            : '';
+        if ( $referer ) {
+            $ref_query = wp_parse_url( $referer, PHP_URL_QUERY ) ?? '';
+            if ( $ref_query !== '' ) {
+                parse_str( $ref_query, $ref_params );
+                if ( ! empty( $ref_params['lang'] ) ) {
+                    $lang = sanitize_key( $ref_params['lang'] );
+                }
+            }
+        }
+    }
+
     // 2. Cookie (fallback when no ?lang= in URL)
     if ( ! $lang && isset( $_COOKIE['my_lang'] ) ) {
         $lang = sanitize_key( wp_unslash( $_COOKIE['my_lang'] ) );
@@ -140,6 +200,14 @@ function mml_detect_language(): void {
     if ( ! defined( 'MML_LANG' ) ) {
         define( 'MML_LANG', $lang );
     }
+
+    // Debug: log detected language to PHP error log (only when WP_DEBUG_LOG is on)
+    if ( defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
+        $source = isset( $_GET['lang'] ) // phpcs:ignore
+            ? '?lang=' . sanitize_key( wp_unslash( $_GET['lang'] ) ) // phpcs:ignore
+            : ( isset( $_COOKIE['my_lang'] ) ? 'cookie' : 'Accept-Language/default' );
+        error_log( '[MML] MML_LANG = ' . MML_LANG . '  |  source: ' . $source );
+    }
 }
 
 // ── Frontend hooks (outside admin) ─────────────────────────────────────────
@@ -148,6 +216,7 @@ add_action( 'init', [ 'MML_Menu', 'init' ], 5 );
 add_action( 'init', [ 'MML_Translations', 'init' ], 10 );
 add_action( 'init', [ 'MML_Meta_Box', 'init' ], 10 );
 add_action( 'init', [ 'MML_Magic_Sync', 'init' ], 10 );
+add_action( 'init', [ 'MML_Smart_Scan', 'init' ], 10 );
 
 add_action( 'wp_enqueue_scripts', function () {
     wp_enqueue_style( 'mml-front', MML_URL . 'assets/front.css', [], MML_VERSION );
@@ -479,5 +548,129 @@ function mml_swap_the_terms( $terms, $post_id, $taxonomy ) {
 
     $in_swap = false;
     return $result;
+}
+
+// ── WooCommerce Breadcrumb Translation ───────────────────────────────────────
+// Replaces breadcrumb labels with the MML_LANG equivalent and appends ?lang=
+// to each breadcrumb URL so every crumb links to the correct translated page.
+add_filter( 'woocommerce_get_breadcrumb', 'mml_translate_breadcrumb', 20 );
+function mml_translate_breadcrumb( array $breadcrumb ): array {
+    if ( is_admin() || ! defined( 'MML_LANG' ) ) {
+        return $breadcrumb;
+    }
+    $default_lang = MML_Languages::get_default_code();
+    if ( MML_LANG === $default_lang ) {
+        return $breadcrumb;
+    }
+
+    foreach ( $breadcrumb as &$crumb ) {
+        // $crumb = [ label, url ]
+        $label = $crumb[0];
+        $url   = $crumb[1];
+
+        // 1. Try wp_my_strings for an exact VI-text match (e.g. "Trang chủ")
+        $str_trans = mml_find_string_translation( $label, MML_LANG );
+        if ( $str_trans !== null ) {
+            $crumb[0] = $str_trans;
+            if ( ! empty( $url ) ) {
+                $crumb[1] = add_query_arg( 'lang', MML_LANG, $url );
+            }
+            continue;
+        }
+
+        if ( empty( $url ) ) {
+            continue;
+        }
+
+        // 2. Try to identify a term from the URL slug and swap to its translation
+        $term = mml_get_term_from_crumb_url( $url );
+        if ( $term ) {
+            $trans_id = MML_Translations::get_translated_id( $term->term_id, MML_LANG, 'term' );
+            if ( $trans_id ) {
+                $trans_term = get_term( $trans_id, $term->taxonomy );
+                if ( $trans_term && ! is_wp_error( $trans_term ) ) {
+                    $crumb[0] = $trans_term->name;
+                    $term_url = get_term_link( $trans_term );
+                    $crumb[1] = ! is_wp_error( $term_url )
+                        ? add_query_arg( 'lang', MML_LANG, $term_url )
+                        : add_query_arg( 'lang', MML_LANG, $url );
+                    continue;
+                }
+            }
+            // No translation — just add lang param
+            $crumb[1] = add_query_arg( 'lang', MML_LANG, $url );
+            continue;
+        }
+
+        // 3. Try to identify a post/page from the URL
+        $post_id = url_to_postid( $url );
+        if ( $post_id ) {
+            $trans_id = MML_Translations::get_translated_id( $post_id, MML_LANG, 'post' );
+            if ( $trans_id ) {
+                $trans_post = get_post( $trans_id );
+                if ( $trans_post ) {
+                    $crumb[0] = $trans_post->post_title;
+                    $post_url = get_permalink( $trans_id );
+                    $crumb[1] = $post_url
+                        ? add_query_arg( 'lang', MML_LANG, $post_url )
+                        : add_query_arg( 'lang', MML_LANG, $url );
+                    continue;
+                }
+            }
+        }
+
+        // 4. Fallback — just add lang param to the existing URL
+        $crumb[1] = add_query_arg( 'lang', MML_LANG, $url );
+    }
+    unset( $crumb );
+
+    return $breadcrumb;
+}
+
+/**
+ * Find the translated text for a given VI label string using wp_my_strings.
+ * Returns null when no matching entry is found.
+ *
+ * @param string $label  Default-lang text to look up.
+ * @param string $lang   Target language code.
+ * @return string|null
+ */
+function mml_find_string_translation( string $label, string $lang ): ?string {
+    $def_lang = MML_Languages::get_default_code();
+    foreach ( MML_Strings::get_all() as $row ) {
+        $t = json_decode( $row->translations, true );
+        if ( ! is_array( $t ) || ! isset( $t[ $def_lang ] ) ) {
+            continue;
+        }
+        if ( $t[ $def_lang ] === $label ) {
+            return ( isset( $t[ $lang ] ) && $t[ $lang ] !== '' ) ? $t[ $lang ] : null;
+        }
+    }
+    return null;
+}
+
+/**
+ * Attempt to identify a WP_Term from a WooCommerce breadcrumb URL.
+ * Parses the last path segment as a slug and checks product_cat, product_tag, category.
+ *
+ * @param string $url
+ * @return WP_Term|null
+ */
+function mml_get_term_from_crumb_url( string $url ): ?WP_Term {
+    $path = wp_parse_url( $url, PHP_URL_PATH );
+    if ( ! $path ) {
+        return null;
+    }
+    $slug = sanitize_title( basename( rtrim( $path, '/' ) ) );
+    if ( empty( $slug ) ) {
+        return null;
+    }
+    foreach ( [ 'product_cat', 'product_tag', 'category' ] as $tax ) {
+        $term = get_term_by( 'slug', $slug, $tax );
+        if ( $term && ! is_wp_error( $term ) ) {
+            return $term;
+        }
+    }
+    return null;
 }
 

@@ -13,11 +13,15 @@ class MML_Shortcodes {
      * Registers one shortcode per string key, plus [my_lang_flags].
      */
     public static function register(): void {
-        // Register global string shortcodes
+        // Register global string shortcodes (one per key, e.g. [danh_muc_a1b])
         $keys = MML_Strings::get_all_keys();
         foreach ( $keys as $key ) {
             add_shortcode( $key, [ self::class, 'render_string' ] );
         }
+
+        // Explicit namespaced shortcode: [my_trans key="string_key"]
+        // Used by UX Block post_content replacements and manual placements.
+        add_shortcode( 'my_trans', [ self::class, 'render_my_trans' ] );
 
         // Language switcher
         add_shortcode( 'my_lang_flags', [ self::class, 'render_lang_flags' ] );
@@ -35,10 +39,45 @@ class MML_Shortcodes {
      * @return string
      */
     public static function render_string( array $atts, string $content = '', string $tag = '' ): string {
-        $lang = defined( 'MML_LANG' ) ? MML_LANG : MML_Languages::get_default_code();
+        $lang  = defined( 'MML_LANG' ) ? MML_LANG : MML_Languages::get_default_code();
         $value = MML_Strings::get_value( $tag, $lang );
+        return do_shortcode( $value );
+    }
 
-        // The stored value may itself contain shortcodes — do_shortcode on it
+    /**
+     * [my_trans key="string_key" original="Fallback text"] — explicit namespaced shortcode.
+     *
+     * Rendering priority:
+     *  1. If a translation for the current MML_LANG (or default lang) exists → return it.
+     *  2. If the key is missing or has no translation → return the `original` attribute text.
+     *  3. If both are empty → return ''.
+     *
+     * This guarantees the site never shows a blank or a raw "[key]" placeholder
+     * even when the DB record has been deleted or not yet filled in.
+     *
+     * @param array $atts
+     * @return string
+     */
+    public static function render_my_trans( array $atts ): string {
+        $atts     = shortcode_atts( [ 'key' => '', 'original' => '' ], $atts, 'my_trans' );
+        $key      = sanitize_key( $atts['key'] );
+        $fallback = $atts['original']; // plain Vietnamese text stored by the Replace action
+
+        if ( empty( $key ) ) {
+            // No key at all — return the original attribute if provided.
+            return esc_html( $fallback );
+        }
+
+        $lang  = defined( 'MML_LANG' ) ? MML_LANG : MML_Languages::get_default_code();
+        $value = MML_Strings::get_value( $key, $lang );
+
+        // get_value() returns '[key]' when the key is absent or every translation is blank.
+        // In that case, fall back to the text stored in the original attribute so the
+        // frontend always shows something meaningful.
+        if ( $value === '[' . $key . ']' ) {
+            return $fallback !== '' ? esc_html( $fallback ) : '';
+        }
+
         return do_shortcode( $value );
     }
 

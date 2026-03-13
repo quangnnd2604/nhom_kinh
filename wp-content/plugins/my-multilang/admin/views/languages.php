@@ -22,13 +22,14 @@
                 <th><?php esc_html_e( 'Language Name', 'my-multilang' ); ?></th>
                 <th><?php esc_html_e( 'Code', 'my-multilang' ); ?></th>
                 <th><?php esc_html_e( 'Default', 'my-multilang' ); ?></th>
+                <th><?php esc_html_e( 'English Slug', 'my-multilang' ); ?></th>
                 <th><?php esc_html_e( 'Order', 'my-multilang' ); ?></th>
                 <th><?php esc_html_e( 'Actions', 'my-multilang' ); ?></th>
             </tr>
         </thead>
         <tbody>
         <?php if ( empty( $languages ) ) : ?>
-            <tr><td colspan="6"><?php esc_html_e( 'No languages found.', 'my-multilang' ); ?></td></tr>
+            <tr><td colspan="7"><?php esc_html_e( 'No languages found.', 'my-multilang' ); ?></td></tr>
         <?php else : ?>
             <?php foreach ( $languages as $lang ) : ?>
             <tr>
@@ -42,6 +43,13 @@
                 <td><?php echo esc_html( $lang->name ); ?></td>
                 <td><code><?php echo esc_html( $lang->code ); ?></code></td>
                 <td><?php echo $lang->is_default ? '<span class="mml-default-star">★</span>' : ''; ?></td>
+                <td>
+                    <?php if ( ! empty( $lang->use_english_slug ) ) : ?>
+                        <span title="<?php esc_attr_e( 'Slugs will be generated in English', 'my-multilang' ); ?>" style="color:#2271b1;font-weight:600;">&#10003; EN</span>
+                    <?php else : ?>
+                        <span style="color:#aaa">&mdash;</span>
+                    <?php endif; ?>
+                </td>
                 <td><?php echo esc_html( $lang->sort_order ); ?></td>
                 <td>
                     <a href="<?php echo esc_url( add_query_arg( [ 'page' => 'mml-languages', 'edit' => $lang->id ], admin_url( 'admin.php' ) ) ); ?>#mml-add-form">
@@ -112,6 +120,15 @@
                         <label>
                             <input type="checkbox" name="is_default" value="1" <?php checked( $edit_lang && $edit_lang->is_default ); ?>>
                             <?php esc_html_e( 'Set as default language', 'my-multilang' ); ?>
+                        </label>
+                    </td>
+                </tr>
+                <tr>
+                    <th><?php esc_html_e( 'Use English for Slugs', 'my-multilang' ); ?></th>
+                    <td>
+                        <label>
+                            <input type="checkbox" name="use_english_slug" value="1" <?php checked( $edit_lang && ! empty( $edit_lang->use_english_slug ) ); ?>>
+                            <?php esc_html_e( 'Generate URL slugs in English (e.g. th-contact-us) instead of native characters. Recommended for Thai, Chinese, Russian, etc.', 'my-multilang' ); ?>
                         </label>
                     </td>
                 </tr>

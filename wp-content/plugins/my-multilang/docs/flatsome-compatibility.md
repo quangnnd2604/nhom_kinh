@@ -28,7 +28,7 @@ All Flatsome layout data lives in `post_content`. Additional metadata (e.g., hea
 | `post_status` | `wp_posts` | Inherited from source (published/draft) |
 | `post_author` | `wp_posts` | Copied from source |
 | `post_type` | `wp_posts` | Copied from source |
-| `post_name` (slug) | `wp_posts` | Derived from translated title via `sanitize_title()` + `wp_unique_post_slug()` |
+| `post_name` (slug) | `wp_posts` | **Smart slug**: if `use_english_slug=1` → translate VI title → EN, then `{lang}-{en_slug}`; else `sanitize_title(translated_title)` + `wp_unique_post_slug()` |
 | All `wp_postmeta` | `wp_postmeta` | Bulk-copied for the new post ID |
 | Featured image | `_thumbnail_id` meta | Copied (same image; translator may replace) |
 | Flatsome page options | `_flatsome_*` meta | Copied as part of bulk meta copy |
@@ -40,7 +40,7 @@ All Flatsome layout data lives in `post_content`. Additional metadata (e.g., hea
 | Data | Source | Clone method |
 |------|--------|-------------|
 | `name` | `wp_terms` | Translated by `MML_Auto_Translate::translate()` |
-| `slug` | `wp_terms` | Derived from translated name via `sanitize_title()` + `-{lang}` suffix |
+| `slug` | `wp_terms` | **Smart slug** (see §3): English-based `{lang}-{en_slug}` when `use_english_slug=1`, otherwise `sanitize_title(translated_name)-{lang}` |
 | `description` | `wp_terms` | Translated by `MML_Auto_Translate::translate()` |
 | `parent` | `wp_terms` | Resolved to the **translated parent** via `MML_Translations::get_translated_id()` |
 | Term meta | `wp_termmeta` | Bulk-copied (thumbnail, etc.) |
@@ -48,6 +48,33 @@ All Flatsome layout data lives in `post_content`. Additional metadata (e.g., hea
 ---
 
 ## 3. Cloning Algorithm
+
+### Smart Slug Logic (v1.1.0)
+
+Both `clone_post()` and `clone_term()` check `use_english_slug` on the target language:
+
+```php
+$lang_obj    = MML_Languages::get_by_code( $target_lang );
+$use_en_slug = $lang_obj && ! empty( $lang_obj->use_english_slug );
+
+if ( $use_en_slug ) {
+    // Translate VI source title/name to English, then prefix with lang code
+    $en_text = MML_Auto_Translate::translate( $source_title, $default_lang, 'en' );
+    $slug    = $target_lang . '-' . sanitize_title( $en_text );
+    // e.g. source="Liên hệ" + target=th  →  "th-contact-us"
+} else {
+    // Default: use sanitize_title of the already-translated text
+    $slug = sanitize_title( $translated_title );  // may be empty for CJK
+    if ( empty( $slug ) ) {
+        $slug = $source->post_name . '-' . $target_lang; // fallback
+    }
+}
+```
+
+For posts, `wp_unique_post_slug()` is always called after slug generation to avoid conflicts.  
+For terms, uniqueness is guaranteed by the `{lang}` prefix/suffix making the slug globally distinct.
+
+---
 
 ```php
 /**
@@ -226,3 +253,52 @@ if ( ! current_user_can( 'edit_posts' ) ) {
 ```
 
 Magic Sync endpoints use `check_ajax_referer( 'mml_admin_nonce', 'nonce' )` and `current_user_can( 'manage_options' )`.
+
+---
+
+## 8. Smart Scan Integration with Flatsome Content
+
+### UX Builder content as scan target
+
+Flatsome stores all page layout data inside `post_content` as nested shortcodes. The Smart Scan system (`MML_Scanner`) treats this string as its primary scan source: it searches for literal Vietnamese text **between** UX Builder shortcode tags — the same text nodes that `translate_content()` would translate.
+
+### `[my_trans]` shortcode in UX Blocks
+
+When the admin approves a replacement in the scanner, the detected text is replaced in-place inside `post_content`:
+
+**Before:**
+```
+[ux_text]<h2>Chào mừng đến với Nhóm Kính</h2>[/ux_text]
+```
+
+**After:**
+```
+[ux_text]<h2>[my_trans key="welcome_heading" original="Chào mừng đến với Nhóm Kính"]</h2>[/ux_text]
+```
+
+The `original="..."` attribute is critical for Flatsome pages: if the key is ever accidentally deleted from `wp_my_strings`, the heading renders its source Vietnamese text instead of going blank. This avoids a blank UX Builder section on a live page.
+
+WordPress's shortcode parser handles nested shortcodes correctly — `[ux_text]` is processed by Flatsome, `[my_trans]` is processed by the plugin, and do_shortcode() recursively resolves them.
+
+### `rem_category_grid` shortcode translations
+
+The site uses a custom `[rem_category_grid]` Flatsome extension. It renders product category cards with two translatable strings:
+
+| String key | Default VI text | Usage |
+|---|---|---|
+| `rem_cat_card_btn` | "Xem sản phẩm" | Button on each category card |
+| `rem_cat_view_all` | "Xem tất cả" | View-all link at section bottom |
+
+These are registered as **system strings** via `MML_Installer::seed_rem_category_grid_strings()` using `INSERT IGNORE` on plugin activation/upgrade. They are:
+- Protected from deletion by `maybe_heal_wc_strings()` (§14 of architecture.md)
+- Re-seeded after every Restore Session in `MML_Backup::restore_session()`
+
+### Rescue Scanner: upgrading old UX Block shortcodes
+
+Pages that were scanned before v1.2.0 may contain `[my_trans key="X"]` shortcodes without the `original=` attribute. The **Phase D Rescue Scanner** identifies these and rewrites them:
+
+**Upgradeable:** Key exists in `wp_my_strings` with a `vi` translation → rewritten to `[my_trans key="X" original="VI text"]`.
+
+**Unresolvable:** Key has no `vi` translation or key no longer exists → flagged for manual review; not touched automatically.
+
+Since Flatsome loads `post_content` verbatim in the UX Builder editor, upgraded shortcodes are immediately visible in the visual editor with no further action needed.

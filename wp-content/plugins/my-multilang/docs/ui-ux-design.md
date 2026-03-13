@@ -7,6 +7,7 @@ WordPress Admin Sidebar
 └── 🌐 Multilang                        ← Top-level menu (dashicons-translation)
     ├── Languages                        ← Language Manager
     ├── String Translations              ← Spreadsheet-like string table
+    ├── Smart Scanner                    ← Batch content scan + Rescue Scanner
     ├── Magic Sync                       ← Batch auto-translate + purge
     └── Settings                         ← General options (future)
 ```
@@ -23,24 +24,27 @@ WordPress Admin Sidebar
 ┌─────────────────────────────────────────────────────────────────┐
 │  🌐 Language Manager                              [+ Add Language]│
 ├─────────────────────────────────────────────────────────────────┤
-│  ┌──────┬──────────────┬──────┬──────┬────────┬───────────────┐ │
-│  │ Flag │ Language Name│ Code │ Default│ Order │ Actions       │ │
-│  ├──────┼──────────────┼──────┼────────┼───────┼───────────────┤ │
-│  │ 🇻🇳  │ Tiếng Việt   │  vi  │  ★     │  1    │ Edit | Delete │ │
-│  │ 🇬🇧  │ Tiếng Anh    │  en  │        │  2    │ Edit | Delete │ │
-│  │ 🇨🇳  │ Tiếng Trung  │  zh  │        │  3    │ Edit | Delete │ │
-│  │ 🇷🇺  │ Tiếng Nga    │  ru  │        │  4    │ Edit | Delete │ │
-│  └──────┴──────────────┴──────┴────────┴───────┴───────────────┘ │
+│  ┌──────┬──────────────┬──────┬────────┬──────────┬───────┬───────────────┐ │
+│  │ Flag │ Language Name│ Code │ Default│ EN Slug  │ Order │ Actions       │ │
+│  ├──────┼──────────────┼──────┼────────┼──────────┼───────┼───────────────┤ │
+│  │ 🆻🇳  │ Tiếng Việt   │  vi  │  ★     │    —    │  1    │ Edit          │ │
+│  │ 🇬🇧  │ Tiếng Anh    │  en  │        │    —    │  2    │ Edit | Delete │ │
+│  │ 🇨🇳  │ Tiếng Trung  │  zh  │        │  ✓ EN  │  3    │ Edit | Delete │ │
+│  │ 🇷🇺  │ Tiếng Nga    │  ru  │        │  ✓ EN  │  4    │ Edit | Delete │ │
+│  └──────┴──────────────┴──────┴────────┴──────────┴───────┴───────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Add/Edit Language (Modal or Inline Form)
 
 ```
-Language Name:  [__________________________]   e.g. Tiếng Anh
-Language Code:  [____]                         e.g. en  (max 5 chars)
-Flag Icon:      [Select Image ▼]               WordPress Media Library picker
-Set as Default: [ ] (checkbox)
+Language Name:   [__________________________]   e.g. Tiếng Anh
+Language Code:   [____]                         e.g. en  (max 5 chars)
+Flag Icon:       [Select Image ▼]               WordPress Media Library picker
+Set as Default:  [ ] (checkbox)
+Use English for Slugs: [ ] (checkbox)
+    Generate URL slugs in English (e.g. th-contact-us) instead of
+    native characters. Recommended for Thai, Chinese, Russian, etc.
 
                               [Cancel]  [Save Language]
 ```
@@ -291,8 +295,10 @@ The discovery queue is built as: **taxonomy terms first (topological sort — pa
 | `post_content` | `translate_content()` — Flatsome shortcodes + HTML preserved |
 | Term `name` | `translate()` |
 | Term `description` | `translate()` |
-| Post slug | `sanitize_title(translated_title)` + `wp_unique_post_slug()` |
-| Term slug | `sanitize_title(translated_name)` + `-{lang}` suffix |
+| Post slug (`use_english_slug=0`) | `sanitize_title(translated_title)` + `wp_unique_post_slug()` |
+| Post slug (`use_english_slug=1`) | `translate(source_title → 'en')` → `{lang}-sanitize_title(en_title)` + `wp_unique_post_slug()` |
+| Term slug (`use_english_slug=0`) | `sanitize_title(translated_name)-{lang}` |
+| Term slug (`use_english_slug=1`) | `translate(source_name → 'en')` → `{lang}-sanitize_title(en_name)` |
 
 ### Purge (Danger Zone)
 AJAX endpoint `mml_magic_sync_purge`: fetches all `object_id` rows for `$target_lang` from `wp_my_translations`, calls `wp_delete_post(true)` / `wp_delete_term()` on each, deletes nav menus ending with `_{lang}`, then removes orphan rows. Requires `manage_options` capability and nonce.
@@ -315,3 +321,105 @@ AJAX endpoint `mml_magic_sync_purge`: fetches all `object_id` rows for `$target_
 /* Danger Zone card */
 .mml-danger-zone { border: 2px solid #d63638; border-radius: 4px; padding: 16px; }
 ```
+
+---
+
+## 8. Smart Scanner Page
+
+**URL:** `wp-admin/admin.php?page=mml-scanner`
+
+The scanner page is divided into four progressive phases (A → D) rendered as cards.
+
+### Phase A — Scan Controls
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  🔍 Phase A — Scan Content                                    │
+├──────────────────────────────────────────────────────────────┤
+│  Scan options:                                                │
+│  [x] Scan UX Builder blocks (post_content)                   │
+│  [x] Scan WooCommerce gettext strings                        │
+│                                                              │
+│  [▶ Start Scan]              X posts will be scanned         │
+│                                                              │
+│  Progress:  ████████████░░░  35 / 48                         │
+└──────────────────────────────────────────────────────────────┘
+```
+
+The scan paginates through `post_content` in batches of 20 posts via `mml_scan_batch`. Found matches are displayed in the Phase B review table.
+
+### Phase B — Review & Approve
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  📋 Phase B — Review Matches                                         │
+├──────────┬─────────────────┬──────────────────────────┬─────────────┤
+│ Post     │ Found Text      │ Suggested Key            │ Action      │
+├──────────┼─────────────────┼──────────────────────────┼─────────────┤
+│ Trang chủ│ Chào mừng...    │ [welcome_heading       ] │ [✓ Replace] │
+│ Về chúng │ Nhóm Kính là... │ [about_intro           ] │ [✓ Replace] │
+└──────────┴─────────────────┴──────────────────────────┴─────────────┘
+```
+
+Clicking **Replace** fires `mml_scan_process`:
+- Backs up original `post_content` to `wp_mml_backups`
+- Writes new row to `wp_my_strings` (`is_autoscanned = 1`) with the VI text pre-populated
+- Replaces the literal text with `[my_trans key="X" original="Văn bản gốc"]`
+
+**Manual Add String** panel (below Phase B): allows the admin to manually create a string key + VI text without a scan match.
+
+### Phase C — Restore Sessions
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  ↩ Phase C — Restore Sessions                                │
+├──────────────┬─────────┬────────────┬────────────────────────┤
+│ Session      │ Posts   │ Keys Added │ Actions                │
+├──────────────┼─────────┼────────────┼────────────────────────┤
+│ 2024-01-15   │    5    │     12     │ [Restore] [Discard]    │
+└──────────────┴─────────┴────────────┴────────────────────────┘
+```
+
+- **Restore**: Calls `mml_scan_restore` → reverts all modified posts to their Golden Source backup, deletes `is_autoscanned = 1` string rows, re-seeds system strings, truncates backup table.
+- **Discard**: Calls `mml_scan_delete_session` → removes the session row from `wp_mml_backups` without restoring content. Used when the admin is happy with the replacements and wants to clear the history.
+
+### Phase D — Rescue Scanner
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  🚑 Phase D — Rescue Scanner                                 │
+├──────────────────────────────────────────────────────────────┤
+│  Scans for old-format [my_trans key="X"] shortcodes that     │
+│  are missing the original= attribute (pre-v1.2.0 format).   │
+│                                                              │
+│  [Step 1: Scan for old-format shortcodes]                    │
+│                                                              │
+│  Upgradeable (12 found):          Unresolvable (3 found):    │
+│  ┌──────────┬──────────────────┐  ┌──────────┬────────────┐  │
+│  │ Post     │ Key / VI text    │  │ Post     │ Reason     │  │
+│  └──────────┴──────────────────┘  └──────────┴────────────┘  │
+│                                                              │
+│  [Step 2: Upgrade All Upgradeable]  ← shown only if > 0     │
+└──────────────────────────────────────────────────────────────┘
+```
+
+- Step 1 paginates via `mml_scan_rescue_scan`; results deduplicated by key.
+- Step 2 fires `mml_scan_rescue_upgrade` after a JS `confirm()` dialog.
+- After upgrade the button hides and a success notice shows the count.
+
+---
+
+## 9. Admin Notices — Self-Healing Strings
+
+When the `admin_init` hook detects that one or more of the 5 protected system strings are missing from `wp_my_strings`, it re-seeds them and sets a short-lived transient. The `admin_notices` hook then renders a **yellow dismissible notice** at the top of every admin page:
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  ⚠  My Multilang: 2 system string(s) were missing and     │
+│     have been restored.  [View Strings]              [✕]  │
+└────────────────────────────────────────────────────────────┘
+```
+
+- **View Strings** links to `wp-admin/admin.php?page=mml-strings`.
+- The notice is dismissed by clicking ✕ (standard WordPress `is-dismissible` class).
+- The transient TTL is 60 seconds — shown once per healing event, not on every page load.

@@ -34,7 +34,19 @@ class MML_Cloner {
         }
 
         // 1. Insert the cloned draft post
-        $new_id = wp_insert_post( [
+        // Slug: if use_english_slug=1, translate source title to English and prefix
+        // with lang code now — Magic Sync will later overwrite with the same logic;
+        // still useful for manual clones triggered from the post list.
+        $lang_obj      = MML_Languages::get_by_code( $target_lang );
+        $initial_slug  = '';
+        if ( $lang_obj && ! empty( $lang_obj->use_english_slug ) ) {
+            $default_lang     = MML_Languages::get_default_code();
+            $en_title         = MML_Auto_Translate::translate( $source->post_title, $default_lang, 'en' );
+            $base             = sanitize_title( $en_title );
+            $initial_slug     = $base ? $target_lang . '-' . $base : $source->post_name . '-' . $target_lang;
+        }
+
+        $insert_args = [
             'post_author'    => $source->post_author,
             'post_content'   => $source->post_content,  // Flatsome UX Builder shortcodes preserved verbatim
             'post_excerpt'   => $source->post_excerpt,
@@ -45,7 +57,18 @@ class MML_Cloner {
             'menu_order'     => $source->menu_order,
             'comment_status' => $source->comment_status,
             'ping_status'    => $source->ping_status,
-        ], true );
+        ];
+        if ( $initial_slug ) {
+            $insert_args['post_name'] = wp_unique_post_slug(
+                $initial_slug,
+                0,
+                'draft',
+                $source->post_type,
+                $source->post_parent
+            );
+        }
+
+        $new_id = wp_insert_post( $insert_args, true );
 
         if ( is_wp_error( $new_id ) ) {
             return $new_id;
@@ -177,13 +200,27 @@ class MML_Cloner {
             $translated_parent = $mapped_parent ? $mapped_parent : 0;
         }
 
+        // Slug: if use_english_slug=1, translate source name to English and prefix
+        // with lang code (e.g. th-tempered-glass). Magic Sync will later overwrite
+        // with the same logic; using the right slug here avoids temporary conflicts.
+        $lang_obj         = MML_Languages::get_by_code( $target_lang );
+        $initial_term_slug = $source->slug . '-' . $target_lang; // default fallback
+        if ( $lang_obj && ! empty( $lang_obj->use_english_slug ) ) {
+            $default_lang = MML_Languages::get_default_code();
+            $en_name      = MML_Auto_Translate::translate( $source->name, $default_lang, 'en' );
+            $base         = sanitize_title( $en_name );
+            if ( $base ) {
+                $initial_term_slug = $target_lang . '-' . $base;
+            }
+        }
+
         $new_term = wp_insert_term(
             $source->name . ' [' . strtoupper( $target_lang ) . ']',
             $taxonomy,
             [
                 'description' => $source->description,
                 'parent'      => $translated_parent,
-                'slug'        => $source->slug . '-' . $target_lang,
+                'slug'        => $initial_term_slug,
             ]
         );
 

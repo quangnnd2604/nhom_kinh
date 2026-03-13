@@ -161,11 +161,27 @@ class MML_Magic_Sync {
             );
 
             // ── 5. Derive a clean URL slug from the translated title ───────
-            $translated_slug = sanitize_title( $translated_title );
-            // If sanitize_title returned empty (e.g. CJK without romanization),
-            // fall back to the source slug suffixed with the language code.
-            if ( empty( $translated_slug ) ) {
-                $translated_slug = $source_post->post_name . '-' . $target_lang;
+            // If the target language has use_english_slug=1, translate the SOURCE
+            // (VI) title to English and use that as the slug base (e.g. th-contact-us).
+            // Otherwise fall back to sanitize_title of the already-translated title.
+            $lang_obj    = MML_Languages::get_by_code( $target_lang );
+            $use_en_slug = $lang_obj && ! empty( $lang_obj->use_english_slug );
+
+            if ( $use_en_slug ) {
+                $en_title_for_slug = MML_Auto_Translate::translate( $source_post->post_title, $default_lang, 'en' );
+                $translated_slug   = sanitize_title( $en_title_for_slug );
+                if ( empty( $translated_slug ) ) {
+                    $translated_slug = $source_post->post_name . '-' . $target_lang;
+                } else {
+                    $translated_slug = $target_lang . '-' . $translated_slug;
+                }
+            } else {
+                $translated_slug = sanitize_title( $translated_title );
+                // If sanitize_title returned empty (e.g. CJK without romanization),
+                // fall back to the source slug suffixed with the language code.
+                if ( empty( $translated_slug ) ) {
+                    $translated_slug = $source_post->post_name . '-' . $target_lang;
+                }
             }
 
             // Ensure slug uniqueness (wp_unique_post_slug handles collision avoidance)
@@ -217,14 +233,28 @@ class MML_Magic_Sync {
                 $target_lang
             );
 
-            // ── 3. Derive clean URL slug from translated name ─────────────
-            $translated_slug = sanitize_title( $translated_name );
-            if ( empty( $translated_slug ) ) {
-                $translated_slug = $source_term->slug . '-' . $target_lang;
-            }
+            // ── 3. Derive clean URL slug from translated name ───────────────
+            // If use_english_slug=1, translate SOURCE name to English and prefix
+            // with lang code (e.g. th-tempered-glass). Otherwise append -lang suffix.
+            $lang_obj    = MML_Languages::get_by_code( $target_lang );
+            $use_en_slug = $lang_obj && ! empty( $lang_obj->use_english_slug );
 
-            // Append lang suffix to guarantee uniqueness across taxonomies
-            $translated_slug = $translated_slug . '-' . $target_lang;
+            if ( $use_en_slug ) {
+                $en_name_for_slug = MML_Auto_Translate::translate( $source_term->name, $default_lang, 'en' );
+                $translated_slug  = sanitize_title( $en_name_for_slug );
+                if ( empty( $translated_slug ) ) {
+                    $translated_slug = $source_term->slug . '-' . $target_lang;
+                } else {
+                    $translated_slug = $target_lang . '-' . $translated_slug;
+                }
+            } else {
+                $translated_slug = sanitize_title( $translated_name );
+                if ( empty( $translated_slug ) ) {
+                    $translated_slug = $source_term->slug . '-' . $target_lang;
+                }
+                // Append lang suffix to guarantee uniqueness across taxonomies
+                $translated_slug = $translated_slug . '-' . $target_lang;
+            }
 
             wp_update_term( $new_id, $tax, [
                 'name'        => $translated_name,

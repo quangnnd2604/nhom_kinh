@@ -48,6 +48,15 @@ class MML_Admin {
             'mml-magic-sync',
             [ 'MML_Magic_Sync_UI', 'render_page' ]
         );
+
+        add_submenu_page(
+            'mml-languages',
+            __( 'Smart Scan', 'my-multilang' ),
+            __( 'Smart Scan', 'my-multilang' ),
+            'manage_options',
+            'mml-smart-scan',
+            [ 'MML_Scanner_UI', 'render_page' ]
+        );
     }
 
     // ── Asset enqueueing ───────────────────────────────────────────────────
@@ -60,7 +69,12 @@ class MML_Admin {
             'multilang_page_mml-strings',
         ];
 
-        $is_plugin_page = in_array( $hook, $plugin_pages, true );
+        $scanner_pages = [
+            'multilang_page_mml-smart-scan',
+        ];
+
+        $is_plugin_page  = in_array( $hook, $plugin_pages, true );
+        $is_scanner_page = in_array( $hook, $scanner_pages, true );
 
         // $hook for list tables usually starts with "edit-" or is "edit.php"
         // And we also need it on single post edit screens ("post.php", "post-new.php") for the Meta Box.
@@ -71,7 +85,7 @@ class MML_Admin {
             $hook === 'post-new.php'
         );
 
-        if ( ! $is_plugin_page && ! $is_list_page ) {
+        if ( ! $is_plugin_page && ! $is_list_page && ! $is_scanner_page ) {
             return;
         }
 
@@ -86,10 +100,13 @@ class MML_Admin {
         // Always load the JS (it handles both clone buttons AND plugin-page UI)
         wp_enqueue_script( 'mml-admin', MML_URL . 'admin/assets/admin.js', [ 'jquery' ], MML_VERSION, true );
         wp_localize_script( 'mml-admin', 'mmlAdmin', [
-            'ajaxurl'          => admin_url( 'admin-ajax.php' ),
-            'nonce'            => wp_create_nonce( 'mml_admin_nonce' ),
-            'confirmDelete'    => __( 'Are you sure you want to clone this content?', 'my-multilang' ),
-            'confirmDeleteStr' => __( 'Delete this string key and all its translations?', 'my-multilang' ),
+            'ajaxurl'              => admin_url( 'admin-ajax.php' ),
+            'adminurl'             => admin_url(),
+            'nonce'                => wp_create_nonce( 'mml_admin_nonce' ),
+            'confirmDelete'        => __( 'Are you sure you want to clone this content?', 'my-multilang' ),
+            'confirmDeleteStr'     => __( 'Delete this string key and all its translations?', 'my-multilang' ),
+            'confirmRestore'       => __( 'Restore will revert post content and remove all registered string keys for this session. Continue?', 'my-multilang' ),
+            'confirmDiscard'       => __( 'Discard the backup without restoring? This cannot be undone.', 'my-multilang' ),
         ] );
     }
 
@@ -129,11 +146,12 @@ class MML_Admin {
 
         $id   = isset( $_POST['lang_id'] ) ? absint( $_POST['lang_id'] ) : 0;
         $data = [
-            'name'       => sanitize_text_field( wp_unslash( $_POST['lang_name'] ?? '' ) ),
-            'code'       => sanitize_key( wp_unslash( $_POST['lang_code'] ?? '' ) ),
-            'flag_id'    => absint( $_POST['flag_id'] ?? 0 ),
-            'is_default' => ! empty( $_POST['is_default'] ) ? 1 : 0,
-            'sort_order' => absint( $_POST['sort_order'] ?? 0 ),
+            'name'             => sanitize_text_field( wp_unslash( $_POST['lang_name'] ?? '' ) ),
+            'code'             => sanitize_key( wp_unslash( $_POST['lang_code'] ?? '' ) ),
+            'flag_id'          => absint( $_POST['flag_id'] ?? 0 ),
+            'is_default'       => ! empty( $_POST['is_default'] ) ? 1 : 0,
+            'sort_order'       => absint( $_POST['sort_order'] ?? 0 ),
+            'use_english_slug' => ! empty( $_POST['use_english_slug'] ) ? 1 : 0,
         ];
 
         if ( empty( $data['name'] ) || empty( $data['code'] ) ) {
