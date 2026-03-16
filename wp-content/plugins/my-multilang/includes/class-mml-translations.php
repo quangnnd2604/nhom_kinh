@@ -31,7 +31,12 @@ class MML_Translations {
      */
     public static function link_posts( int $source_id, int $new_id, string $target_lang, string $source_lang = '' ): void {
         if ( empty( $source_lang ) ) {
-            $source_lang = defined( 'MML_LANG' ) ? MML_LANG : MML_Languages::get_default_code();
+            // Always fall back to the configured default language code.
+            // Using MML_LANG here was unsafe: admin cookie could set MML_LANG to
+            // a non-default value (e.g. 'zh-cn'), causing the VI source post to be
+            // registered with the wrong lang_code and then skipped by Golden Source
+            // guards in subsequent discover operations.
+            $source_lang = MML_Languages::get_default_code();
         }
 
         $group_id = self::get_group_id( $source_id, 'post' );
@@ -50,7 +55,8 @@ class MML_Translations {
      */
     public static function link_terms( int $source_term_id, int $new_term_id, string $target_lang, string $source_lang = '' ): void {
         if ( empty( $source_lang ) ) {
-            $source_lang = defined( 'MML_LANG' ) ? MML_LANG : MML_Languages::get_default_code();
+            // Always fall back to the configured default language code (see link_posts note).
+            $source_lang = MML_Languages::get_default_code();
         }
 
         $group_id = self::get_group_id( $source_term_id, 'term' );

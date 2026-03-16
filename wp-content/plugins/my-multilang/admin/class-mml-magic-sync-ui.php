@@ -121,6 +121,20 @@ class MML_Magic_Sync_UI {
             </p>
 
             <div id="mml-purge-result" style="display:none; margin-top:12px; padding:12px; border-radius:4px;"></div>
+
+            <hr style="margin:24px 0; border-color:#f5c6c6;">
+
+            <h3 style="color:#a00; margin-top:0;">🔧 Reset Translation Links</h3>
+            <p>Use this <strong>only</strong> if your translation data is corrupted — for example, if Magic Sync reports "Everything is already translated" for languages you have never cloned.<br>
+            This empties the <code>wp_my_translations</code> table so you can re-run Magic Sync from scratch. <em>Your original Vietnamese posts/products are NOT deleted.</em>
+            Previously created clone posts/pages/products will become orphaned and should be deleted manually, or re-purged per language first.</p>
+            <p>
+                <button type="button" id="mml-reset-links-btn" class="button" style="background:#7f0000; border-color:#7f0000; color:#fff; font-weight:bold;">
+                    ☠️ Reset All Translation Links
+                </button>
+                <span class="spinner" id="mml-reset-links-spinner" style="float:none; margin-top:10px;"></span>
+            </p>
+            <div id="mml-reset-links-result" style="display:none; margin-top:12px; padding:12px; border-radius:4px;"></div>
         </div>
 
         <script>
@@ -372,6 +386,51 @@ class MML_Magic_Sync_UI {
                     complete: function() {
                         $btn.prop('disabled', false);
                         $('#mml-purge-spinner').removeClass('is-active');
+                    }
+                });
+            });
+
+            // ── Reset Translation Links Button ────────────────────────────
+            $('#mml-reset-links-btn').on('click', function() {
+                if (!confirm('⚠️ WARNING: This will ERASE all translation link records.\n\nYour original Vietnamese content is NOT deleted, but all clone relationships will be lost.\n\nAre you sure?')) return;
+                if (!confirm('Final confirmation: RESET all translation links?')) return;
+
+                const $btn    = $(this);
+                const $result = $('#mml-reset-links-result');
+
+                $btn.prop('disabled', true);
+                $('#mml-reset-links-spinner').addClass('is-active');
+                $result.hide();
+
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'mml_reset_translation_links',
+                        nonce: '<?php echo esc_js( wp_create_nonce( 'mml_admin_nonce' ) ); ?>'
+                    },
+                    success: function(res) {
+                        if (res.success) {
+                            $result
+                                .css({ background: '#edfaef', border: '1px solid #00a32a', color: '#00a32a' })
+                                .html('<strong>✓ ' + res.data + '</strong>')
+                                .show();
+                        } else {
+                            $result
+                                .css({ background: '#fef1f1', border: '1px solid #d63638', color: '#d63638' })
+                                .html('<strong>✗ Error:</strong> ' + res.data)
+                                .show();
+                        }
+                    },
+                    error: function() {
+                        $result
+                            .css({ background: '#fef1f1', border: '1px solid #d63638', color: '#d63638' })
+                            .html('<strong>✗ Network error.</strong> Please try again.')
+                            .show();
+                    },
+                    complete: function() {
+                        $btn.prop('disabled', false);
+                        $('#mml-reset-links-spinner').removeClass('is-active');
                     }
                 });
             });

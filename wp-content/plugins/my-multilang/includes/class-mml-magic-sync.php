@@ -10,10 +10,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 class MML_Magic_Sync {
 
     public static function init(): void {
-        add_action( 'wp_ajax_mml_magic_sync_discover',      [ self::class, 'ajax_discover' ] );
-        add_action( 'wp_ajax_mml_magic_sync_execute_item',  [ self::class, 'ajax_execute_item' ] );
-        add_action( 'wp_ajax_mml_magic_sync_menus',         [ self::class, 'ajax_sync_menus' ] );
-        add_action( 'wp_ajax_mml_magic_sync_purge',         [ self::class, 'ajax_purge' ] );
+        add_action( 'wp_ajax_mml_magic_sync_discover',       [ self::class, 'ajax_discover' ] );
+        add_action( 'wp_ajax_mml_magic_sync_execute_item',   [ self::class, 'ajax_execute_item' ] );
+        add_action( 'wp_ajax_mml_magic_sync_menus',          [ self::class, 'ajax_sync_menus' ] );
+        add_action( 'wp_ajax_mml_magic_sync_purge',          [ self::class, 'ajax_purge' ] );
+        add_action( 'wp_ajax_mml_reset_translation_links',   [ self::class, 'ajax_reset_translation_links' ] );
     }
 
     /**
@@ -414,6 +415,41 @@ class MML_Magic_Sync {
                 $deleted_menus
             ),
         ] );
+    }
+
+    /**
+     * AJAX Endpoint: Reset all translation link records (truncate wp_my_translations).
+     *
+     * USE CASE: Corrupted translation data — e.g. VI source posts were incorrectly
+     * registered with a non-default lang_code (caused by admin cookie setting MML_LANG
+     * to a non-default language during previous Magic Sync runs). After reset, the user
+     * must re-run Magic Sync for each language.
+     *
+     * Original VI posts/products/terms are NOT deleted — only the link table is cleared.
+     * Clone posts created by previous syncs will become orphaned.
+     */
+    public static function ajax_reset_translation_links(): void {
+        check_ajax_referer( 'mml_admin_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( __( 'Permission denied.', 'my-multilang' ) );
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'my_translations';
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $rows_before = (int) $wpdb->get_var( "SELECT COUNT(*) FROM `{$table}`" );
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $wpdb->query( "TRUNCATE TABLE `{$table}`" );
+
+        wp_send_json_success(
+            sprintf(
+                /* translators: %d: number of rows deleted */
+                __( 'Translation link table cleared (%d records removed). You may now re-run Magic Sync for each language.', 'my-multilang' ),
+                $rows_before
+            )
+        );
     }
 
     /**
