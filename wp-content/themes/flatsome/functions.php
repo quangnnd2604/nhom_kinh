@@ -120,12 +120,30 @@ function rem_category_grid_shortcode($atts) {
         'number'   => '6',
     ], $atts);
 
-    // Resolve parent term (can be slug or term_id)
-    $parent_term = is_numeric($atts['parent'])
-        ? get_term((int)$atts['parent'], 'product_cat')
-        : get_term_by('slug', $atts['parent'], 'product_cat');
+    // ── Helper: fetch a term bypassing the MML language filter.
+    // The filter blocks VI source terms when MML_LANG=non-default, but here
+    // we need the SOURCE term in order to TRANSLATE it — not to display it.
+    $get_term_unfiltered = function( $id_or_slug, string $taxonomy ): ?WP_Term {
+        $has_filter = has_filter( 'terms_clauses', 'mml_terms_clauses_lang_filter' );
+        if ( $has_filter ) {
+            remove_filter( 'terms_clauses', 'mml_terms_clauses_lang_filter', 10 );
+        }
+        $term = is_numeric( $id_or_slug )
+            ? get_term( (int) $id_or_slug, $taxonomy )
+            : get_term_by( 'slug', $id_or_slug, $taxonomy );
+        if ( $has_filter ) {
+            add_filter( 'terms_clauses', 'mml_terms_clauses_lang_filter', 10, 3 );
+        }
+        return ( $term && ! is_wp_error( $term ) ) ? $term : null;
+    };
 
-    if (!$parent_term || is_wp_error($parent_term)) return '';
+    // Resolve parent term (can be slug or term_id) — bypass language filter
+    $parent_term = $get_term_unfiltered( $atts['parent'], 'product_cat' );
+
+    if ( ! $parent_term ) return '';
+
+    // ── Save original (VI) parent slug BEFORE translation for children_* key lookup
+    $original_parent_slug = $parent_term->slug;
 
     // ── MML: swap parent term to current-language equivalent ──────────────
     $translated_parent_id = mml_translate_term_id( $parent_term->term_id );
@@ -136,33 +154,33 @@ function rem_category_grid_shortcode($atts) {
         }
     }
 
-    // Check for dynamic children_* attribute matching the parent slug
-    $children_key = 'children_' . str_replace('-', '_', $parent_term->slug);
+    // Check for dynamic children_* attribute matching the ORIGINAL (VI) parent slug.
+    // Must use original slug — at this point $parent_term may already be the
+    // translated term whose slug is different (e.g. "th-rem-cua" vs "rem-cua").
+    $children_key = 'children_' . str_replace( '-', '_', $original_parent_slug );
     $children_value = '';
-    if (!empty($raw_atts[$children_key])) {
-        $children_value = $raw_atts[$children_key];
-    } elseif (!empty($atts['children'])) {
+    if ( ! empty( $raw_atts[ $children_key ] ) ) {
+        $children_value = $raw_atts[ $children_key ];
+    } elseif ( ! empty( $atts['children'] ) ) {
         $children_value = $atts['children'];
     }
 
     $parent_link = get_term_link($parent_term);
     $number = max(1, (int)$atts['number']);
 
-    // Resolve child terms
+    // Resolve child terms — bypass language filter so VI source IDs/slugs are
+    // always found regardless of the currently active language.
     $child_terms = [];
     if (!empty($children_value)) {
         $ids = array_map('trim', explode(',', $children_value));
         foreach ($ids as $id) {
-            $term = is_numeric($id)
-                ? get_term((int)$id, 'product_cat')
-                : get_term_by('slug', $id, 'product_cat');
-            if ($term && !is_wp_error($term)) {
+            $term = $get_term_unfiltered( $id, 'product_cat' );
+            if ($term) {
                 $child_terms[] = $term;
             }
         }
     } else {
-
-        // Auto-fetch children of parent
+        // Auto-fetch children of translated parent (already correct-language term)
         $child_terms = get_terms([
             'taxonomy'   => 'product_cat',
             'parent'     => $parent_term->term_id,
@@ -322,7 +340,7 @@ function techzhome_contact_button() {
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
             </svg>
-            Liên hệ tư vấn
+            <?php echo do_shortcode('[my_trans key="lien_he_tu_ask" original="Liên hệ tư vấn"]'); ?>
         </button>
 
         <!-- Mobile: main button toggles 2 actions -->
@@ -331,16 +349,16 @@ function techzhome_contact_button() {
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
                 </svg>
-                Liên hệ tư vấn
+                <?php echo do_shortcode('[my_trans key="lien_he_tu_ask" original="Liên hệ tư vấn"]'); ?>
             </button>
             <div class="techzhome-mobile-actions">
                 <a href="tel:<?php echo esc_attr($hotline_clean); ?>" class="techzhome-action-btn techzhome-action-call">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-                    Gọi tư vấn
+                    <?php echo do_shortcode('[my_trans key="goi_tu_van_93o" original="Gọi tư vấn"]'); ?>
                 </a>
                 <button type="button" class="techzhome-action-btn techzhome-action-form" onclick="document.getElementById('techzhome-popup').classList.add('active')">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                    Để lại thông tin
+                    <?php echo do_shortcode('[my_trans key="de_lai_thong_8uo" original="Để lại thông tin"]'); ?>
                 </button>
             </div>
         </div>
@@ -356,8 +374,8 @@ function techzhome_contact_button() {
             <button type="button" class="techzhome-popup-close" onclick="document.getElementById('techzhome-popup').classList.remove('active')">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
-            <h3 class="techzhome-popup-title">Liên hệ tư vấn</h3>
-            <p class="techzhome-popup-subtitle">Để lại thông tin, chúng tôi sẽ liên hệ bạn sớm nhất</p>
+            <h3 class="techzhome-popup-title"><?php echo do_shortcode('[my_trans key="lien_he_tu_ask" original="Liên hệ tư vấn"]'); ?></h3>
+            <p class="techzhome-popup-subtitle"><?php echo do_shortcode('[my_trans key="de_lai_thong_b9u" original="Để lại thông tin, chúng tôi sẽ liên hệ bạn sớm nhất"]'); ?></p>
             <div class="techzhome-popup-form">
                 <?php echo do_shortcode('[contact-form-7 id="3870070" title="Form liên hệ mua sản phẩm"]'); ?>
             </div>

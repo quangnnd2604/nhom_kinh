@@ -16,6 +16,7 @@ class MML_Installer {
         self::seed_wc_result_count_strings();
         self::seed_rem_category_grid_strings();
         self::seed_wc_product_strings();
+        self::maybe_heal_wc_strings();
         update_option( 'mml_version', MML_VERSION );
     }
 
@@ -395,6 +396,86 @@ class MML_Installer {
                 [ '%s', '%s', '%d' ]
             );
         }
+    }
+
+    /**
+     * Auto-fill missing language translations for rem_category_grid system strings.
+     * Called on admin_init (throttled by a daily transient). Uses Google Translate
+     * to fill every active language code that has no value in the JSON blob.
+     *
+     * @return int  Number of string-language pairs that were filled.
+     */
+    public static function heal_system_string_languages(): int {
+        if ( ! class_exists( 'MML_Languages' ) || ! class_exists( 'MML_Auto_Translate' ) ) {
+            return 0;
+        }
+
+        global $wpdb;
+        $table        = $wpdb->prefix . 'my_strings';
+        $default_lang = MML_Languages::get_default_code();
+        $languages    = MML_Languages::get_all();
+        $non_default  = array_filter( $languages, fn( $l ) => $l->code !== $default_lang );
+
+        if ( empty( $non_default ) ) {
+            return 0;
+        }
+
+        // Heal ALL strings from the DB that:
+        //  - have a VI (default-lang) source translation
+        //  - are missing translations for one or more active non-default languages
+        //  - do NOT contain printf-style format specifiers (%d, %s, %1$d …)
+        //    because those patterns could be garbled by the translator.
+        $rows = $wpdb->get_results( // phpcs:ignore
+            "SELECT `id`, `string_key`, `translations` FROM `{$table}` ORDER BY `id` ASC"
+        );
+
+        if ( empty( $rows ) ) {
+            return 0;
+        }
+
+        $filled = 0;
+        foreach ( $rows as $row ) {
+            $translations = json_decode( $row->translations, true ) ?: [];
+            $source_text  = $translations[ $default_lang ] ?? '';
+            if ( ! $source_text ) {
+                continue;
+            }
+
+            // Skip printf-pattern strings — format specifiers get garbled by translation APIs.
+            if ( preg_match( '/%(?:\d+\$)?[sd]/', $source_text ) ) {
+                continue;
+            }
+
+            $updated = false;
+            foreach ( $non_default as $lang ) {
+                if ( isset( $translations[ $lang->code ] ) && $translations[ $lang->code ] !== '' ) {
+                    continue; // Already translated — preserve user edits
+                }
+
+                $translated = MML_Auto_Translate::translate( $source_text, $default_lang, $lang->code );
+                if ( $translated && $translated !== $source_text ) {
+                    $translations[ $lang->code ] = $translated;
+                    $updated = true;
+                    $filled++;
+                }
+            }
+
+            if ( $updated ) {
+                $wpdb->update(
+                    $table,
+                    [ 'translations' => wp_json_encode( $translations, JSON_UNESCAPED_UNICODE ) ],
+                    [ 'id' => (int) $row->id ],
+                    [ '%s' ],
+                    [ '%d' ]
+                );
+            }
+        }
+
+        if ( $filled > 0 && class_exists( 'MML_Strings' ) ) {
+            MML_Strings::clear_cache();
+        }
+
+        return $filled;
     }
 
     /**

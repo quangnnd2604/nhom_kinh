@@ -88,7 +88,6 @@ class MML_Magic_Sync_UI {
                 </div>
             </div>
         </div>
-
         <!-- ═══════════════════════════════════════════════════════════════ -->
         <!-- Danger Zone: Delete All Clones                                  -->
         <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -137,12 +136,61 @@ class MML_Magic_Sync_UI {
             <div id="mml-reset-links-result" style="display:none; margin-top:12px; padding:12px; border-radius:4px;"></div>
         </div>
 
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- Nút Xóa Toàn Bộ Clone – Tất Cả Ngôn Ngữ                              -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <div class="mml-card" style="background:#1e0f0f; border:2px solid #8b0000; padding:24px 28px; max-width:800px; margin-top:16px;">
+            <h2 style="color:#ff6b6b; margin-top:0; font-size:18px;">🚨 Xóa Toàn Bộ Clone – Tất Cả Ngôn Ngữ</h2>
+            <p style="color:#ffcccc; margin-bottom:8px;">
+                Nút này sẽ <strong style="color:#fff;">xóa vĩnh viễn</strong> toàn bộ bài viết, trang, sản phẩm, danh mục và menu
+                đã được tạo bởi Magic Sync cho <strong style="color:#fff;">tất cả ngôn ngữ không mặc định</strong>.
+                Không cần chọn ngôn ngữ — mọi clone sẽ bị xóa cùng lúc.
+            </p>
+            <p style="color:#ff9999; font-size:12px; margin-bottom:20px;"><em>⚠️ Hành động này không thể hoàn tác.</em></p>
+            <p style="margin:0;">
+                <button type="button" id="mml-purge-all-btn" class="button"
+                    style="background:#a00000; border-color:#6a0000; color:#fff; font-weight:bold; font-size:14px; padding:10px 26px; height:auto; line-height:1.4;">
+                    🚨 Xóa Toàn Bộ Clone (Tất Cả Ngôn Ngữ)
+                </button>
+                <span class="spinner" id="mml-purge-all-spinner" style="float:none; margin-top:10px;"></span>
+            </p>
+            <div id="mml-purge-all-result" style="display:none; margin-top:16px; padding:12px; border-radius:4px;"></div>
+        </div>
+
+        <!-- Purge-All Confirmation Modal -->
+        <div id="mml-purge-all-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:999992; align-items:center; justify-content:center;">
+            <div style="background:#1e0f0f; border:2px solid #8b0000; border-radius:6px; padding:32px 36px; max-width:540px; width:90%; box-shadow:0 8px 40px rgba(0,0,0,0.6); position:relative;">
+                <button type="button" id="mml-purge-all-close" style="position:absolute;top:12px;right:14px;background:none;border:none;font-size:22px;cursor:pointer;color:#ff9999;">&times;</button>
+                <h2 style="margin-top:0; color:#ff6b6b;">🚨 Xác nhận Xóa Toàn Bộ Clone</h2>
+                <p style="color:#ffdddd; font-size:14px; border-left:4px solid #a00000; padding:10px 12px; background:rgba(160,0,0,0.25); border-radius:0 4px 4px 0; margin-bottom:16px;">
+                    Các ngôn ngữ sẽ bị purge: <strong id="mml-purge-all-lang-list" style="color:#fff;"></strong>
+                </p>
+                <div style="background:rgba(160,0,0,0.2); border:1px solid #8b0000; border-radius:4px; padding:10px 14px; margin-bottom:24px; font-size:13px; color:#ffcccc;">
+                    ⚠️ Hành động này sẽ xóa <strong>’toàn bộ</strong> bài viết, trang, sản phẩm, danh mục và menu đã clone sang tất cả ngôn ngữ không mặc định. Không thể hoàn tác.
+                </div>
+                <div style="display:flex; gap:10px; justify-content:flex-end;">
+                    <button type="button" id="mml-purge-all-cancel" class="button" style="color:#ccc;">Hủy bỏ</button>
+                    <button type="button" id="mml-purge-all-go" class="button"
+                        style="background:#a00000; border-color:#6a0000; color:#fff; font-weight:bold;">
+                        🚨 Xác nhận Xóa Toàn Bộ
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <script>
         var mmlSyncI18n = <?php echo wp_json_encode( [
             'discoveryFailed'      => __( 'Discovery failed.', 'my-multilang' ),
             'pleaseSelectLang'     => __( 'Please select a target language first.', 'my-multilang' ),
             'pleaseSelectPurgeLang'=> __( 'Please select a language to purge first.', 'my-multilang' ),
         ], JSON_UNESCAPED_UNICODE ); ?>;
+        var mmlAllLangNames = <?php
+            $non_default_langs = array_filter( $languages, fn( $l ) => $l->code !== $default_code );
+            echo wp_json_encode(
+                array_map( fn( $l ) => $l->name . ' (' . strtoupper( $l->code ) . ')', array_values( $non_default_langs ) ),
+                JSON_UNESCAPED_UNICODE
+            );
+        ?>;
         jQuery(document).ready(function($) {
             let syncItems = [];
             let currentIndex = 0;
@@ -335,7 +383,68 @@ class MML_Magic_Sync_UI {
                     }
                 });
             });
-            // ── Purge Button ─────────────────────────────────────────────
+            // ── Purge All Button ─────────────────────────────────────────────
+            var $purgeAllOverlay = $('#mml-purge-all-overlay');
+
+            $('#mml-purge-all-btn').on('click', function() {
+                var listText = mmlAllLangNames.length > 0
+                    ? mmlAllLangNames.join(', ')
+                    : '(không có ngôn ngữ nào)';
+                $('#mml-purge-all-lang-list').text(listText);
+                $purgeAllOverlay.css('display', 'flex');
+            });
+
+            $('#mml-purge-all-close, #mml-purge-all-cancel').on('click', function() {
+                $purgeAllOverlay.hide();
+            });
+            $purgeAllOverlay.on('click', function(e) {
+                if (e.target === this) $purgeAllOverlay.hide();
+            });
+
+            $('#mml-purge-all-go').on('click', function() {
+                $purgeAllOverlay.hide();
+
+                const $btn    = $('#mml-purge-all-btn');
+                const $result = $('#mml-purge-all-result');
+
+                $btn.prop('disabled', true);
+                $('#mml-purge-all-spinner').addClass('is-active');
+                $result.hide();
+
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'mml_purge_all_clones',
+                        nonce: '<?php echo esc_js( wp_create_nonce( 'mml_admin_nonce' ) ); ?>'
+                    },
+                    success: function(res) {
+                        if (res.success) {
+                            $result
+                                .css({ background: '#edfaef', border: '1px solid #00a32a', color: '#1d2327' })
+                                .html('<strong>✓ ' + res.data.message + '</strong>')
+                                .show();
+                        } else {
+                            $result
+                                .css({ background: '#fef1f1', border: '1px solid #d63638', color: '#d63638' })
+                                .html('<strong>✗ Lỗi:</strong> ' + res.data)
+                                .show();
+                        }
+                    },
+                    error: function() {
+                        $result
+                            .css({ background: '#fef1f1', border: '1px solid #d63638', color: '#d63638' })
+                            .html('<strong>✗ Lỗi mạng.</strong> Vui lòng thử lại.')
+                            .show();
+                    },
+                    complete: function() {
+                        $btn.prop('disabled', false);
+                        $('#mml-purge-all-spinner').removeClass('is-active');
+                    }
+                });
+            });
+
+            // ── Purge Button (per language) ───────────────────────────────
             $('#mml-purge-btn').on('click', function() {
                 const purgeLang = $('#mml_purge_lang').val();
                 if (!purgeLang) {

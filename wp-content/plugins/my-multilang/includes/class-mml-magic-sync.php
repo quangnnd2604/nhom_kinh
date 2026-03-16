@@ -10,11 +10,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 class MML_Magic_Sync {
 
     public static function init(): void {
-        add_action( 'wp_ajax_mml_magic_sync_discover',       [ self::class, 'ajax_discover' ] );
-        add_action( 'wp_ajax_mml_magic_sync_execute_item',   [ self::class, 'ajax_execute_item' ] );
-        add_action( 'wp_ajax_mml_magic_sync_menus',          [ self::class, 'ajax_sync_menus' ] );
-        add_action( 'wp_ajax_mml_magic_sync_purge',          [ self::class, 'ajax_purge' ] );
-        add_action( 'wp_ajax_mml_reset_translation_links',   [ self::class, 'ajax_reset_translation_links' ] );
+        add_action( 'wp_ajax_mml_magic_sync_discover',      [ self::class, 'ajax_discover' ] );
+        add_action( 'wp_ajax_mml_magic_sync_execute_item',  [ self::class, 'ajax_execute_item' ] );
+        add_action( 'wp_ajax_mml_magic_sync_menus',         [ self::class, 'ajax_sync_menus' ] );
+        add_action( 'wp_ajax_mml_magic_sync_purge',         [ self::class, 'ajax_purge' ] );
+        add_action( 'wp_ajax_mml_reset_translation_links',  [ self::class, 'ajax_reset_translation_links' ] );
+        add_action( 'wp_ajax_mml_purge_all_clones',         [ self::class, 'ajax_purge_all' ] );
     }
 
     /**
@@ -342,6 +343,26 @@ class MML_Magic_Sync {
             wp_send_json_error( __( 'Cannot purge the default language.', 'my-multilang' ) );
         }
 
+        $counts = self::do_purge_language( $target_lang );
+
+        wp_send_json_success( [
+            'deleted_posts' => $counts['deleted_posts'],
+            'deleted_terms' => $counts['deleted_terms'],
+            'deleted_menus' => $counts['deleted_menus'],
+            'message'       => sprintf(
+                'Purge complete: %d posts/pages/products, %d terms, %d menus deleted.',
+                $counts['deleted_posts'],
+                $counts['deleted_terms'],
+                $counts['deleted_menus']
+            ),
+        ] );
+    }
+
+    /**
+     * Purge all cloned content for a single language code.
+     * Returns array with keys: deleted_posts, deleted_terms, deleted_menus.
+     */
+    private static function do_purge_language( string $target_lang ): array {
         global $wpdb;
         $table = $wpdb->prefix . 'my_translations';
 
@@ -360,7 +381,6 @@ class MML_Magic_Sync {
             $id = (int) $row->object_id;
 
             if ( $row->object_type === 'post' ) {
-                // wp_delete_post fires 'delete_post' which auto-removes the translation row
                 $result = wp_delete_post( $id, true );
                 if ( $result ) {
                     $deleted_posts++;
@@ -384,13 +404,9 @@ class MML_Magic_Sync {
         }
 
         // 2. Remove any orphaned translation rows that may remain for this lang
-        $wpdb->delete(
-            $table,
-            [ 'lang_code' => $target_lang ],
-            [ '%s' ]
-        );
+        $wpdb->delete( $table, [ 'lang_code' => $target_lang ], [ '%s' ] );
 
-        // 3. Delete cloned menus: menus whose name ends with _{target_lang}
+        // 3. Delete cloned menus whose name ends with _{target_lang}
         $deleted_menus = 0;
         $all_menus     = wp_get_nav_menus();
         $suffix        = '_' . $target_lang;
@@ -404,15 +420,55 @@ class MML_Magic_Sync {
             }
         }
 
-        wp_send_json_success( [
+        return [
             'deleted_posts' => $deleted_posts,
             'deleted_terms' => $deleted_terms,
             'deleted_menus' => $deleted_menus,
+        ];
+    }
+
+    /**
+     * AJAX Endpoint 5: Purge ALL clones across every non-default language at once.
+     */
+    public static function ajax_purge_all(): void {
+        check_ajax_referer( 'mml_admin_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( __( 'Permission denied.', 'my-multilang' ) );
+        }
+
+        set_time_limit( 300 );
+
+        $default_lang = MML_Languages::get_default_code();
+        $languages    = MML_Languages::get_all();
+
+        $total_posts  = 0;
+        $total_terms  = 0;
+        $total_menus  = 0;
+        $purged_langs = [];
+
+        foreach ( $languages as $lang ) {
+            if ( $lang->code === $default_lang ) {
+                continue;
+            }
+            $counts        = self::do_purge_language( $lang->code );
+            $total_posts  += $counts['deleted_posts'];
+            $total_terms  += $counts['deleted_terms'];
+            $total_menus  += $counts['deleted_menus'];
+            $purged_langs[] = strtoupper( $lang->code );
+        }
+
+        wp_send_json_success( [
+            'deleted_posts' => $total_posts,
+            'deleted_terms' => $total_terms,
+            'deleted_menus' => $total_menus,
+            'purged_langs'  => $purged_langs,
             'message'       => sprintf(
-                'Purge complete: %d posts/pages/products, %d terms, %d menus deleted.',
-                $deleted_posts,
-                $deleted_terms,
-                $deleted_menus
+                'Đã xóa toàn bộ clone: %d bài viết/trang/sản phẩm, %d danh mục/tag, %d menu — trên %d ngôn ngữ (%s).',
+                $total_posts,
+                $total_terms,
+                $total_menus,
+                count( $purged_langs ),
+                empty( $purged_langs ) ? 'không có' : implode( ', ', $purged_langs )
             ),
         ] );
     }

@@ -4,6 +4,7 @@
  */
 add_action('init', function() {
     if ( ! isset( $_GET['test_gg'] ) ) return;
+    if ( ! current_user_can( 'manage_options' ) ) return;
 
     $text = "Xin chào, đây là một bài kiểm tra hệ thống tự dịch rất dài và có xuống dòng.\nTest OK";
     $source = "vi";

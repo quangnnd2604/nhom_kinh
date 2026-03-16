@@ -218,6 +218,9 @@ class MML_Admin {
             MML_Languages::update( $id, $data );
         } else {
             MML_Languages::insert( $data );
+            // New language added — invalidate the heal transient so admin_init
+            // runs heal_system_string_languages() on the very next page load.
+            delete_transient( 'mml_lang_strings_healed' );
         }
 
         wp_redirect( add_query_arg( 'saved', '1', admin_url( 'admin.php?page=mml-languages' ) ) );

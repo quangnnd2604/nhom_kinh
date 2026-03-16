@@ -38,8 +38,12 @@ $mml_files = [
     MML_PATH . 'includes/class-mml-scanner.php',
     MML_PATH . 'includes/class-mml-backup.php',
     MML_PATH . 'includes/class-mml-smart-scan.php',
-    MML_PATH . 'test_gg.php',
 ];
+
+// test_gg.php — only load in admin context for authorised users
+if ( is_admin() && file_exists( MML_PATH . 'test_gg.php' ) ) {
+    require_once MML_PATH . 'test_gg.php';
+}
 
 foreach ( $mml_files as $file ) {
     if ( file_exists( $file ) ) {
@@ -85,6 +89,14 @@ add_action( 'admin_init', function () {
     $healed = MML_Installer::maybe_heal_wc_strings();
     if ( $healed > 0 ) {
         set_transient( 'mml_heal_notice', $healed, 60 );
+    }
+
+    // Auto-translate rem_category_grid system strings for any language codes
+    // that don't yet have a translation. Throttled: runs at most once per day,
+    // or immediately after a new language is added (transient is cleared then).
+    if ( ! get_transient( 'mml_lang_strings_healed' ) ) {
+        MML_Installer::heal_system_string_languages();
+        set_transient( 'mml_lang_strings_healed', true, DAY_IN_SECONDS );
     }
 } );
 
