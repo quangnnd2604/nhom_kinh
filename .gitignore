@@ -2,9 +2,6 @@
 .DS_Store
 **/.DS_Store
 
-# Database dumps
-*.sql
-
 # WordPress uploads & logs
 wp-content/uploads/
 
