@@ -86,6 +86,29 @@ add_action('wp_enqueue_scripts', 'bootstrap_bundle');
  *   [rem_category_grid parent="rem-cua" cols="3" children="29,31,32,34,35,37"]
  *   [rem_category_grid parent="rem-cua" cols="3" children="rem-vai,rem-sao-nhom"]
  */
+
+/**
+ * Translate a product_cat term_id to the current MML_LANG equivalent.
+ * Uses a static cache to avoid duplicate DB hits within one request.
+ * Returns the translated term_id, or the original if no translation exists.
+ */
+function mml_translate_term_id( int $term_id ): int {
+    if ( ! defined( 'MML_LANG' ) || ! class_exists( 'MML_Translations' ) ) {
+        return $term_id;
+    }
+
+    static $cache = [];
+    $lang = MML_LANG;
+
+    $cache_key = $term_id . ':' . $lang;
+    if ( ! array_key_exists( $cache_key, $cache ) ) {
+        $translated = MML_Translations::get_translated_id( $term_id, $lang, 'term' );
+        $cache[ $cache_key ] = ( $translated !== null ) ? $translated : $term_id;
+    }
+
+    return $cache[ $cache_key ];
+}
+
 function rem_category_grid_shortcode($atts) {
     // Don't filter — accept all attributes including dynamic children_* params
     $raw_atts = $atts;
@@ -103,6 +126,15 @@ function rem_category_grid_shortcode($atts) {
         : get_term_by('slug', $atts['parent'], 'product_cat');
 
     if (!$parent_term || is_wp_error($parent_term)) return '';
+
+    // ── MML: swap parent term to current-language equivalent ──────────────
+    $translated_parent_id = mml_translate_term_id( $parent_term->term_id );
+    if ( $translated_parent_id !== $parent_term->term_id ) {
+        $translated_parent = get_term( $translated_parent_id, 'product_cat' );
+        if ( $translated_parent && ! is_wp_error( $translated_parent ) ) {
+            $parent_term = $translated_parent;
+        }
+    }
 
     // Check for dynamic children_* attribute matching the parent slug
     $children_key = 'children_' . str_replace('-', '_', $parent_term->slug);
@@ -141,6 +173,21 @@ function rem_category_grid_shortcode($atts) {
         if (is_wp_error($child_terms)) $child_terms = [];
     }
 
+    // ── MML: swap each child term to current-language equivalent ──────────
+    $translated_child_terms = [];
+    foreach ( $child_terms as $term ) {
+        $translated_id = mml_translate_term_id( $term->term_id );
+        if ( $translated_id !== $term->term_id ) {
+            $translated_term = get_term( $translated_id, 'product_cat' );
+            if ( $translated_term && ! is_wp_error( $translated_term ) ) {
+                $translated_child_terms[] = $translated_term;
+                continue;
+            }
+        }
+        $translated_child_terms[] = $term;
+    }
+    $child_terms = $translated_child_terms;
+
     // Limit by number
     $child_terms = array_slice($child_terms, 0, $number);
 
@@ -164,7 +211,7 @@ function rem_category_grid_shortcode($atts) {
                 <div class="rem-cat-card-overlay"></div>
                 <div class="rem-cat-card-content">
                     <h3 class="rem-cat-card-title"><?php echo esc_html($term->name); ?></h3>
-                    <span class="rem-cat-card-btn">Xem thêm</span>
+                    <span class="rem-cat-card-btn"><?php echo esc_html( class_exists( 'MML_Strings' ) && defined( 'MML_LANG' ) ? MML_Strings::get_value( 'rem_cat_card_btn', MML_LANG ) : 'Xem thêm' ); ?></span>
                 </div>
                 <div class="rem-cat-card-corner rem-cat-corner-tl"></div>
                 <div class="rem-cat-card-corner rem-cat-corner-br"></div>
@@ -173,7 +220,7 @@ function rem_category_grid_shortcode($atts) {
         </div>
         <div class="rem-cat-footer">
             <a href="<?php echo esc_url($parent_link); ?>" class="rem-cat-view-all">
-                Xem tất cả <?php echo esc_html($parent_term->name); ?>
+                <?php echo esc_html( class_exists( 'MML_Strings' ) && defined( 'MML_LANG' ) ? MML_Strings::get_value( 'rem_cat_view_all', MML_LANG ) : 'Xem tất cả' ); ?> <?php echo esc_html($parent_term->name); ?>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M5 12h14M12 5l7 7-7 7"/>
                 </svg>

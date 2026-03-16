@@ -20,8 +20,8 @@ class MML_Smart_Scan {
         add_action( 'wp_ajax_mml_scan_count',               [ self::class, 'ajax_count' ] );
         add_action( 'wp_ajax_mml_scan_add_manual_string',   [ self::class, 'ajax_add_manual_string' ] );
         add_action( 'wp_ajax_mml_scan_orphaned',            [ self::class, 'ajax_scan_orphaned' ] );
-        add_action( 'wp_ajax_mml_scan_rescue_scan',         [ self::class, 'ajax_rescue_scan' ] );
-        add_action( 'wp_ajax_mml_scan_rescue_upgrade',      [ self::class, 'ajax_rescue_upgrade' ] );
+        add_action( 'wp_ajax_mml_scan_session_preview',     [ self::class, 'ajax_session_preview' ] );
+        add_action( 'wp_ajax_mml_global_restore',           [ self::class, 'ajax_global_restore' ] );
 
         // Frontend string interception via filters (only outside admin)
         if ( ! is_admin() ) {
@@ -60,7 +60,7 @@ class MML_Smart_Scan {
     public static function ajax_count(): void {
         check_ajax_referer( 'mml_admin_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( 'Permission denied.' );
+            wp_send_json_error( __( 'Permission denied.', 'my-multilang' ) );
         }
 
         $scan_target = sanitize_text_field( wp_unslash( $_POST['scan_target'] ?? 'options' ) );
@@ -93,7 +93,7 @@ class MML_Smart_Scan {
     public static function ajax_scan_batch(): void {
         check_ajax_referer( 'mml_admin_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( 'Permission denied.' );
+            wp_send_json_error( __( 'Permission denied.', 'my-multilang' ) );
         }
 
         set_time_limit( 120 );
@@ -148,7 +148,7 @@ class MML_Smart_Scan {
     public static function ajax_process(): void {
         check_ajax_referer( 'mml_admin_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( 'Permission denied.' );
+            wp_send_json_error( __( 'Permission denied.', 'my-multilang' ) );
         }
 
         set_time_limit( 300 );
@@ -158,7 +158,7 @@ class MML_Smart_Scan {
         $session_id = sanitize_text_field( wp_unslash( $_POST['session_id'] ?? '' ) );
 
         if ( ! is_array( $items ) || empty( $items ) ) {
-            wp_send_json_error( 'No items to process.' );
+            wp_send_json_error( __( 'No items to process.', 'my-multilang' ) );
         }
 
         if ( empty( $session_id ) ) {
@@ -184,7 +184,7 @@ class MML_Smart_Scan {
         }
 
         if ( empty( $cleaned ) ) {
-            wp_send_json_error( 'All items were invalid after sanitisation.' );
+            wp_send_json_error( __( 'All items were invalid after sanitisation.', 'my-multilang' ) );
         }
 
         // ── Phase 2: register strings + auto-translate ────────────────────
@@ -254,9 +254,16 @@ class MML_Smart_Scan {
         }
 
         // ── Phase 4: log options-based keys for the session ───────────────
+        // Only log Scan & Replace sessions (options / gettext).
+        // 'orphaned' source_type is a DB repair — it must never write to
+        // wp_mml_backups since no post_content was changed.
         $options_keys = [];
         foreach ( $cleaned as $item ) {
-            if ( $item['source_type'] !== 'ux_block' && in_array( $item['key'], $registered_keys, true ) ) {
+            if (
+                $item['source_type'] !== 'ux_block' &&
+                $item['source_type'] !== 'orphaned' &&
+                in_array( $item['key'], $registered_keys, true )
+            ) {
                 $options_keys[] = $item['key'];
             }
         }
@@ -287,10 +294,10 @@ class MML_Smart_Scan {
     public static function ajax_get_sessions(): void {
         check_ajax_referer( 'mml_admin_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( 'Permission denied.' );
+            wp_send_json_error( __( 'Permission denied.', 'my-multilang' ) );
         }
 
-        $sessions = MML_Backup::get_sessions();
+        $sessions = MML_Backup::get_sessions_detailed();
         wp_send_json_success( $sessions );
     }
 
@@ -299,12 +306,12 @@ class MML_Smart_Scan {
     public static function ajax_restore(): void {
         check_ajax_referer( 'mml_admin_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( 'Permission denied.' );
+            wp_send_json_error( __( 'Permission denied.', 'my-multilang' ) );
         }
 
         $session_id = sanitize_text_field( wp_unslash( $_POST['session_id'] ?? '' ) );
         if ( empty( $session_id ) ) {
-            wp_send_json_error( 'Missing session_id.' );
+            wp_send_json_error( __( 'Missing session_id.', 'my-multilang' ) );
         }
 
         $result = MML_Backup::restore_session( $session_id );
@@ -336,16 +343,16 @@ class MML_Smart_Scan {
     public static function ajax_delete_session(): void {
         check_ajax_referer( 'mml_admin_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( 'Permission denied.' );
+            wp_send_json_error( __( 'Permission denied.', 'my-multilang' ) );
         }
 
         $session_id = sanitize_text_field( wp_unslash( $_POST['session_id'] ?? '' ) );
         if ( empty( $session_id ) ) {
-            wp_send_json_error( 'Missing session_id.' );
+            wp_send_json_error( __( 'Missing session_id.', 'my-multilang' ) );
         }
 
         MML_Backup::delete_session( $session_id );
-        wp_send_json_success( [ 'message' => 'Backup session deleted.' ] );
+        wp_send_json_success( [ 'message' => __( 'Backup session deleted.', 'my-multilang' ) ] );
     }
 
     // ── AJAX: Endpoint 6 — manually register a single string ──────────────
@@ -356,14 +363,14 @@ class MML_Smart_Scan {
     public static function ajax_add_manual_string(): void {
         check_ajax_referer( 'mml_admin_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( 'Permission denied.' );
+            wp_send_json_error( __( 'Permission denied.', 'my-multilang' ) );
         }
 
         $text = sanitize_textarea_field( wp_unslash( $_POST['text'] ?? '' ) );
         $key  = preg_replace( '/[^a-z0-9_]/', '', strtolower( sanitize_key( wp_unslash( $_POST['key'] ?? '' ) ) ) );
 
         if ( empty( $text ) ) {
-            wp_send_json_error( 'Text cannot be empty.' );
+            wp_send_json_error( __( 'Text cannot be empty.', 'my-multilang' ) );
         }
 
         if ( empty( $key ) ) {
@@ -372,7 +379,7 @@ class MML_Smart_Scan {
 
         $row_id = MML_Strings::upsert( $key, $text );
         if ( ! $row_id ) {
-            wp_send_json_error( 'Failed to register string.' );
+            wp_send_json_error( __( 'Failed to register string.', 'my-multilang' ) );
         }
 
         $default_lang = MML_Languages::get_default_code();
@@ -393,6 +400,122 @@ class MML_Smart_Scan {
         ] );
     }
 
+    // ── AJAX: Endpoint — session preview ──────────────────────────────────
+    //
+    // Returns per-post details and key→text mapping for a session so the
+    // UI can show the original texts that were registered during that scan.
+
+    public static function ajax_session_preview(): void {
+        check_ajax_referer( 'mml_admin_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( __( 'Permission denied.', 'my-multilang' ) );
+        }
+
+        $session_id = sanitize_text_field( wp_unslash( $_POST['session_id'] ?? '' ) );
+        if ( empty( $session_id ) ) {
+            wp_send_json_error( __( 'Missing session_id.', 'my-multilang' ) );
+        }
+
+        $rows = MML_Backup::get_session_rows( $session_id );
+        if ( empty( $rows ) ) {
+            wp_send_json_error( __( 'Session not found.', 'my-multilang' ) );
+        }
+
+        $default_lang = MML_Languages::get_default_code();
+
+        // Collect all unique keys across the session.
+        $all_keys = [];
+        foreach ( $rows as $row ) {
+            foreach ( array_filter( explode( ',', (string) $row->string_keys ) ) as $k ) {
+                $all_keys[ $k ] = true;
+            }
+        }
+
+        // Resolve each key → original default-language text.
+        // Flag orphaned keys: those no longer present in wp_my_strings.
+        $registered_keys = MML_Strings::get_all_keys();
+        $key_texts       = [];
+        $orphaned_keys   = [];
+        foreach ( array_keys( $all_keys ) as $key ) {
+            if ( ! in_array( $key, $registered_keys, true ) ) {
+                $orphaned_keys[] = $key;
+                $key_texts[ $key ] = '';
+                continue;
+            }
+            $text              = MML_Strings::get_value( $key, $default_lang );
+            $placeholder       = '[' . $key . ']';
+            $key_texts[ $key ] = ( $text === $placeholder ) ? '' : $text;
+        }
+
+        // Per-post detail (UX Block rows with post_id > 0).
+        $posts_data = [];
+        foreach ( $rows as $row ) {
+            if ( (int) $row->post_id <= 0 ) {
+                continue;
+            }
+            $post         = get_post( (int) $row->post_id );
+            $keys         = array_values( array_filter( explode( ',', (string) $row->string_keys ) ) );
+            $posts_data[] = [
+                'post_id'    => (int) $row->post_id,
+                'post_title' => $post ? ( $post->post_title ?: "(ID #{$row->post_id})" ) : "(ID #{$row->post_id})",
+                'post_type'  => $post ? $post->post_type : 'unknown',
+                'keys'       => $keys,
+            ];
+        }
+
+        // Options-based keys (post_id = 0).
+        $options_keys = [];
+        foreach ( $rows as $row ) {
+            if ( (int) $row->post_id === 0 ) {
+                foreach ( array_filter( explode( ',', (string) $row->string_keys ) ) as $k ) {
+                    $options_keys[] = $k;
+                }
+            }
+        }
+
+        wp_send_json_success( [
+            'posts'         => $posts_data,
+            'options_keys'  => array_values( array_unique( $options_keys ) ),
+            'key_texts'     => $key_texts,
+            'orphaned_keys' => array_values( $orphaned_keys ),
+        ] );
+    }
+
+    // ── AJAX: Endpoint — global restore all posts ──────────────────────────
+    //
+    // Restores ALL posts to their golden backup content WITHOUT deleting any
+    // strings from wp_my_strings. WooCommerce gettext filter remains active.
+
+    public static function ajax_global_restore(): void {
+        check_ajax_referer( 'mml_admin_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( __( 'Permission denied.', 'my-multilang' ) );
+        }
+
+        $result = MML_Backup::global_restore_all();
+
+        // global_restore_all() already flushes transients + wp_cache_flush().
+        // Also reset the in-memory string cache so subsequent requests get fresh data.
+        MML_Strings::clear_cache();
+
+        $removed = $result['removed_keys'] ?? 0;
+
+        if ( $result['restored_posts'] > 0 ) {
+            $msg = sprintf(
+                'Đã khôi phục %d bài viết về nội dung gốc. Đã xóa %d chuỗi tự động quét. Các pattern WooCommerce đã được tái tạo.',
+                $result['restored_posts'],
+                $removed
+            );
+        } else {
+            $msg = sprintf(
+                'Không có bài viết nào cần khôi phục. Đã xóa %d chuỗi tự động quét.',
+                $removed
+            );
+        }
+
+        wp_send_json_success( array_merge( $result, [ 'message' => $msg ] ) );
+    }
+
     // ── AJAX: Endpoint — scan orphaned [my_trans] shortcodes ──────────────
     //
     // Finds [my_trans key="..." original="..."] shortcodes in published post_content
@@ -403,7 +526,7 @@ class MML_Smart_Scan {
     public static function ajax_scan_orphaned(): void {
         check_ajax_referer( 'mml_admin_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( 'Permission denied.' );
+            wp_send_json_error( __( 'Permission denied.', 'my-multilang' ) );
         }
 
         $offset = absint( $_POST['offset'] ?? 0 );
@@ -418,64 +541,6 @@ class MML_Smart_Scan {
             'done'        => $result['post_count'] < $limit,
             'total_found' => count( $result['items'] ),
         ] );
-    }
-
-    // ── AJAX: Rescue Scan — list old-format shortcodes ────────────────────
-    //
-    // Phase 1 of the rescue workflow: scans $limit posts per batch and returns
-    // two lists:
-    //   upgradeable  — shortcode has key in DB, can add `original=` automatically
-    //   unresolvable — key deleted from DB and no `original` attribute; data is lost
-
-    public static function ajax_rescue_scan(): void {
-        check_ajax_referer( 'mml_admin_nonce', 'nonce' );
-        if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( 'Permission denied.' );
-        }
-
-        $offset = absint( $_POST['offset'] ?? 0 );
-        $limit  = min( absint( $_POST['limit'] ?? 10 ), 50 );
-
-        $result = MML_Scanner::scan_rescue_batch( $offset, $limit );
-
-        wp_send_json_success( [
-            'upgradeable'  => $result['upgradeable'],
-            'unresolvable' => $result['unresolvable'],
-            'post_count'   => $result['post_count'],
-            'next_offset'  => $offset + $result['post_count'],
-            'done'         => $result['post_count'] < $limit,
-        ] );
-    }
-
-    // ── AJAX: Rescue Upgrade — rewrite old-format shortcodes ─────────────
-    //
-    // Phase 2 of the rescue workflow: runs MML_Scanner::run_rescue_upgrade()
-    // which rewrites every upgradeable shortcode in-place to include `original=`.
-    // One-shot action — no pagination needed because run_rescue_upgrade() walks
-    // all affected posts internally.
-
-    public static function ajax_rescue_upgrade(): void {
-        check_ajax_referer( 'mml_admin_nonce', 'nonce' );
-        if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( 'Permission denied.' );
-        }
-
-        set_time_limit( 120 );
-
-        $result = MML_Scanner::run_rescue_upgrade();
-
-        // Flush caches so newly-revised post_content is served fresh.
-        MML_Strings::clear_cache();
-        wp_cache_flush();
-
-        $msg = sprintf(
-            'Đã nâng cấp %d shortcode trong %d bài viết. Không thể khôi phục: %d (key đã bị xóa và không có `original`).',
-            $result['upgraded'],
-            $result['posts_changed'],
-            $result['unresolvable']
-        );
-
-        wp_send_json_success( array_merge( $result, [ 'message' => $msg ] ) );
     }
 
     // ── Frontend: gettext interception ──────────────────────────────────────────

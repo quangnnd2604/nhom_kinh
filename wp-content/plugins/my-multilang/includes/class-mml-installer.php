@@ -15,6 +15,7 @@ class MML_Installer {
         self::seed_default_language();
         self::seed_wc_result_count_strings();
         self::seed_rem_category_grid_strings();
+        self::seed_wc_product_strings();
         update_option( 'mml_version', MML_VERSION );
     }
 
@@ -32,6 +33,7 @@ class MML_Installer {
             `id`                INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
             `name`              VARCHAR(100) NOT NULL,
             `code`              VARCHAR(10)  NOT NULL,
+            `ai_name`           VARCHAR(100) NOT NULL DEFAULT '',
             `flag_id`           BIGINT(20) UNSIGNED DEFAULT 0,
             `is_default`        TINYINT(1) NOT NULL DEFAULT 0,
             `sort_order`        INT(11) NOT NULL DEFAULT 0,
@@ -109,9 +111,28 @@ class MML_Installer {
             $wpdb->query( "ALTER TABLE `{$strings_table}` ADD COLUMN `is_autoscanned` TINYINT(1) NOT NULL DEFAULT 0 AFTER `translations`" ); // phpcs:ignore
         }
 
+        // v1.2.2: add ai_name column to wp_my_languages (dbDelta handles it via create_tables above)
+        // Backfill ai_name for existing rows that still have an empty value.
+        if ( function_exists( 'mml_language_registry_by_code' ) ) {
+            $reg_map = mml_language_registry_by_code();
+            $langs   = $wpdb->get_results( "SELECT id, code, ai_name FROM `{$table}`" ); // phpcs:ignore
+            foreach ( $langs as $lang ) {
+                if ( empty( $lang->ai_name ) && isset( $reg_map[ $lang->code ] ) ) {
+                    $wpdb->update(
+                        $table,
+                        [ 'ai_name' => $reg_map[ $lang->code ]['ai_name'] ],
+                        [ 'id'      => $lang->id ],
+                        [ '%s' ],
+                        [ '%d' ]
+                    );
+                }
+            }
+        }
+
         // Always (re-)seed WC result-count strings so they survive a DB wipe
         self::seed_wc_result_count_strings();
         self::seed_rem_category_grid_strings();
+        self::seed_wc_product_strings();
     }
 
     /**
@@ -180,6 +201,36 @@ class MML_Installer {
                 'string_key' => 'rem_cat_view_all',
                 'vi'         => 'Xem tất cả',
                 'en'         => 'View All',
+            ],
+            [
+                'string_key' => 'wc_search_products',
+                'vi'         => 'Tìm kiếm sản phẩm…',
+                'en'         => 'Search products…',
+            ],
+            [
+                'string_key' => 'wc_reviews_count',
+                'vi'         => 'Đánh giá (%d)',
+                'en'         => 'Reviews (%d)',
+            ],
+            [
+                'string_key' => 'wc_add_review',
+                'vi'         => 'Thêm đánh giá',
+                'en'         => 'Add a review',
+            ],
+            [
+                'string_key' => 'wc_first_review',
+                'vi'         => 'Hãy là người đầu tiên nhận xét &ldquo;%s&rdquo;',
+                'en'         => 'Be the first to review &ldquo;%s&rdquo;',
+            ],
+            [
+                'string_key' => 'wc_your_rating',
+                'vi'         => 'Đánh giá của bạn',
+                'en'         => 'Your rating',
+            ],
+            [
+                'string_key' => 'wc_your_review',
+                'vi'         => 'Nhận xét của bạn',
+                'en'         => 'Your review',
             ],
         ];
 
@@ -253,6 +304,74 @@ class MML_Installer {
 
         foreach ( $seeds as $seed ) {
             // Skip if key already registered (don't overwrite user edits)
+            $exists = $wpdb->get_var( $wpdb->prepare( // phpcs:ignore
+                "SELECT id FROM `{$table}` WHERE string_key = %s",
+                $seed['string_key']
+            ) );
+            if ( $exists ) {
+                continue;
+            }
+
+            $translations = wp_json_encode(
+                [ 'vi' => $seed['vi'], 'en' => $seed['en'] ],
+                JSON_UNESCAPED_UNICODE
+            );
+
+            $wpdb->insert(
+                $table,
+                [
+                    'string_key'     => $seed['string_key'],
+                    'translations'   => $translations,
+                    'is_autoscanned' => 1,
+                ],
+                [ '%s', '%s', '%d' ]
+            );
+        }
+    }
+
+    /**
+     * Seed WooCommerce product search, reviews, and review form strings.
+     * Caught at runtime by the gettext interceptor (priority 999).
+     * Safe to run multiple times — skips if key already exists.
+     */
+    public static function seed_wc_product_strings(): void {
+        global $wpdb;
+        $table = $wpdb->prefix . 'my_strings';
+
+        $seeds = [
+            [
+                'string_key' => 'wc_search_products',
+                'vi'         => 'Tìm kiếm sản phẩm…',
+                'en'         => 'Search products…',
+            ],
+            [
+                'string_key' => 'wc_reviews_count',
+                'vi'         => 'Đánh giá (%d)',
+                'en'         => 'Reviews (%d)',
+            ],
+            [
+                'string_key' => 'wc_add_review',
+                'vi'         => 'Thêm đánh giá',
+                'en'         => 'Add a review',
+            ],
+            [
+                'string_key' => 'wc_first_review',
+                'vi'         => 'Hãy là người đầu tiên nhận xét &ldquo;%s&rdquo;',
+                'en'         => 'Be the first to review &ldquo;%s&rdquo;',
+            ],
+            [
+                'string_key' => 'wc_your_rating',
+                'vi'         => 'Đánh giá của bạn',
+                'en'         => 'Your rating',
+            ],
+            [
+                'string_key' => 'wc_your_review',
+                'vi'         => 'Nhận xét của bạn',
+                'en'         => 'Your review',
+            ],
+        ];
+
+        foreach ( $seeds as $seed ) {
             $exists = $wpdb->get_var( $wpdb->prepare( // phpcs:ignore
                 "SELECT id FROM `{$table}` WHERE string_key = %s",
                 $seed['string_key']

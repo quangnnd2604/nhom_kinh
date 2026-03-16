@@ -13,9 +13,10 @@ class MML_Admin {
         add_action( 'admin_post_mml_save_language', [ $this, 'handle_save_language' ] );
         add_action( 'admin_post_mml_delete_language', [ $this, 'handle_delete_language' ] );
         add_action( 'admin_post_mml_save_strings',   [ $this, 'handle_save_strings' ] );
-        add_action( 'wp_ajax_mml_add_string',    [ $this, 'ajax_add_string' ] );
-        add_action( 'wp_ajax_mml_delete_string', [ $this, 'ajax_delete_string' ] );
-        add_action( 'wp_ajax_mml_clone_object',  [ $this, 'ajax_clone_object' ] );
+        add_action( 'wp_ajax_mml_add_string',              [ $this, 'ajax_add_string' ] );
+        add_action( 'wp_ajax_mml_delete_string',            [ $this, 'ajax_delete_string' ] );
+        add_action( 'wp_ajax_mml_clone_object',             [ $this, 'ajax_clone_object' ] );
+        add_action( 'wp_ajax_mml_auto_translate_strings',   [ $this, 'ajax_auto_translate_strings' ] );
     }
 
     // ── Menu Pages ─────────────────────────────────────────────────────────
@@ -99,6 +100,20 @@ class MML_Admin {
 
         // Always load the JS (it handles both clone buttons AND plugin-page UI)
         wp_enqueue_script( 'mml-admin', MML_URL . 'admin/assets/admin.js', [ 'jquery' ], MML_VERSION, true );
+
+        // Build a code-indexed language registry for JS (languages page + magic sync page)
+        $js_registry = [];
+        if ( function_exists( 'mml_get_language_registry' ) ) {
+            foreach ( mml_get_language_registry() as $entry ) {
+                $js_registry[] = [
+                    'name'    => $entry['name'],
+                    'code'    => $entry['code'],
+                    'ai_name' => $entry['ai_name'],
+                    'example' => $entry['example'],
+                ];
+            }
+        }
+
         wp_localize_script( 'mml-admin', 'mmlAdmin', [
             'ajaxurl'              => admin_url( 'admin-ajax.php' ),
             'adminurl'             => admin_url(),
@@ -107,6 +122,36 @@ class MML_Admin {
             'confirmDeleteStr'     => __( 'Delete this string key and all its translations?', 'my-multilang' ),
             'confirmRestore'       => __( 'Restore will revert post content and remove all registered string keys for this session. Continue?', 'my-multilang' ),
             'confirmDiscard'       => __( 'Discard the backup without restoring? This cannot be undone.', 'my-multilang' ),
+            'langRegistry'         => $js_registry,
+            // i18n strings for admin.js — all user-visible JS text goes here so it
+            // can be translated via standard WordPress .po/.mo files.
+            'i18n'                 => [
+                'serverError'      => __( 'Server error.', 'my-multilang' ),
+                'cloneFailed'      => __( 'Clone failed.', 'my-multilang' ),
+                'deleteFailed'     => __( 'Delete failed.', 'my-multilang' ),
+                'processing'       => __( 'Processing…', 'my-multilang' ),
+                'processSelected'  => __( 'Process selected items', 'my-multilang' ),
+                'restoring'        => __( 'Restoring…', 'my-multilang' ),
+                'restore'          => __( 'Restore', 'my-multilang' ),
+                'discarding'       => __( 'Discarding…', 'my-multilang' ),
+                'discard'          => __( 'Discard', 'my-multilang' ),
+                'restoreError'     => __( 'Restore error.', 'my-multilang' ),
+                'previewError'     => __( 'Cannot load preview.', 'my-multilang' ),
+                'scanCounting'     => __( 'Counting system options…', 'my-multilang' ),
+                'scanOrphaned'     => __( 'Scanning for orphaned strings in posts…', 'my-multilang' ),
+                'scanWcGettext'    => __( 'Scanning WooCommerce gettext strings…', 'my-multilang' ),
+                'scanUxBlocks'     => __( 'Scanning UX Blocks…', 'my-multilang' ),
+                'scanStopped'      => __( 'Stopped.', 'my-multilang' ),
+                'scanCountError'   => __( 'Cannot count data.', 'my-multilang' ),
+                'scanError'        => __( 'Error during scan.', 'my-multilang' ),
+                'scanNoData'            => __( 'No data found to scan.', 'my-multilang' ),
+                'manualAddText'         => __( 'Please enter text.', 'my-multilang' ),
+                'autoTranslateSelect'   => __( 'Please select a language first.', 'my-multilang' ),
+                'autoTranslating'       => __( 'Translating…', 'my-multilang' ),
+                'autoTranslateDone'     => __( 'Successfully translated %d string(s) into %s.', 'my-multilang' ),
+                'autoTranslateNone'     => __( 'All strings are already translated for this language.', 'my-multilang' ),
+                'autoTranslateBtn'      => __( 'Auto-translate missing strings', 'my-multilang' ),
+            ],
         ] );
     }
 
@@ -117,8 +162,17 @@ class MML_Admin {
         $edit_id     = isset( $_GET['edit'] ) ? absint( $_GET['edit'] ) : 0;
         $edit_lang   = $edit_id ? $this->get_lang_by_id( $edit_id, $languages ) : null;
         $saved_msg   = isset( $_GET['saved'] ) ? esc_html__( 'Language saved.', 'my-multilang' ) : '';
-        $deleted_msg = isset( $_GET['deleted'] ) ? esc_html__( 'Language deleted.', 'my-multilang' ) : '';
+        $deleted_msg = isset( $_GET['deleted'] ) ? esc_html__( 'Language deleted (strings purged).', 'my-multilang' ) : '';
         $error_msg   = isset( $_GET['error'] ) ? esc_html( urldecode( $_GET['error'] ) ) : ''; // phpcs:ignore
+
+        // Clone-block notice — set when deletion was refused because clones exist.
+        $clone_block = null;
+        if ( isset( $_GET['error_type'] ) && $_GET['error_type'] === 'has_clones' ) {
+            $clone_block = [
+                'code'  => sanitize_key( wp_unslash( $_GET['error_lang']  ?? '' ) ),
+                'count' => absint( $_GET['error_count'] ?? 0 ),
+            ];
+        }
 
         include MML_PATH . 'admin/views/languages.php';
     }
@@ -146,11 +200,12 @@ class MML_Admin {
 
         $id   = isset( $_POST['lang_id'] ) ? absint( $_POST['lang_id'] ) : 0;
         $data = [
-            'name'             => sanitize_text_field( wp_unslash( $_POST['lang_name'] ?? '' ) ),
-            'code'             => sanitize_key( wp_unslash( $_POST['lang_code'] ?? '' ) ),
-            'flag_id'          => absint( $_POST['flag_id'] ?? 0 ),
+            'name'             => sanitize_text_field( wp_unslash( $_POST['lang_name']    ?? '' ) ),
+            'code'             => sanitize_key( wp_unslash( $_POST['lang_code']           ?? '' ) ),
+            'ai_name'          => sanitize_text_field( wp_unslash( $_POST['lang_ai_name'] ?? '' ) ),
+            'flag_id'          => absint( $_POST['flag_id']                               ?? 0 ),
             'is_default'       => ! empty( $_POST['is_default'] ) ? 1 : 0,
-            'sort_order'       => absint( $_POST['sort_order'] ?? 0 ),
+            'sort_order'       => absint( $_POST['sort_order']                            ?? 0 ),
             'use_english_slug' => ! empty( $_POST['use_english_slug'] ) ? 1 : 0,
         ];
 
@@ -170,7 +225,10 @@ class MML_Admin {
     }
 
     /**
-     * Handle language deletion.
+     * Handle language deletion — three-step safety protocol:
+     *   1. Count clones; block if any exist.
+     *   2. Purge string translations for this language.
+     *   3. Delete the language row.
      */
     public function handle_delete_language(): void {
         check_admin_referer( 'mml_delete_language' );
@@ -178,11 +236,46 @@ class MML_Admin {
             wp_die( esc_html__( 'Permission denied.', 'my-multilang' ) );
         }
 
-        $id     = absint( $_GET['lang_id'] ?? 0 );
+        $id   = absint( $_GET['lang_id'] ?? 0 );
+        $lang = MML_Languages::get_by_id( $id );
+
+        if ( ! $lang ) {
+            wp_redirect( add_query_arg(
+                'error', urlencode( __( 'Language not found.', 'my-multilang' ) ),
+                admin_url( 'admin.php?page=mml-languages' )
+            ) );
+            exit;
+        }
+
+        // ── Step 1: Clone Detection ───────────────────────────────────────
+        // Refuse deletion when posts/terms still exist for this language in
+        // wp_my_translations. The admin must purge clones first via Magic Sync.
+        $clone_count = MML_Languages::count_clones( $lang->code );
+        if ( $clone_count > 0 ) {
+            wp_redirect( add_query_arg(
+                [
+                    'error_type'  => 'has_clones',
+                    'error_lang'  => $lang->code,
+                    'error_count' => $clone_count,
+                ],
+                admin_url( 'admin.php?page=mml-languages' )
+            ) );
+            exit;
+        }
+
+        // ── Step 2: String Translation Purge ─────────────────────────────
+        // Remove this language's key from every JSON blob in wp_my_strings
+        // BEFORE the language row is deleted, so no ghost entries remain.
+        MML_Languages::purge_string_translations( $lang->code );
+
+        // ── Step 3: Delete language row ───────────────────────────────────
         $result = MML_Languages::delete( $id );
 
         if ( is_wp_error( $result ) ) {
-            wp_redirect( add_query_arg( 'error', urlencode( $result->get_error_message() ), admin_url( 'admin.php?page=mml-languages' ) ) );
+            wp_redirect( add_query_arg(
+                'error', urlencode( $result->get_error_message() ),
+                admin_url( 'admin.php?page=mml-languages' )
+            ) );
         } else {
             wp_redirect( add_query_arg( 'deleted', '1', admin_url( 'admin.php?page=mml-languages' ) ) );
         }
@@ -298,6 +391,90 @@ class MML_Admin {
         }
 
         wp_send_json_success( [ 'edit_url' => $edit_url ] );
+    }
+
+    /**
+     * AJAX: Auto-translate all missing strings for a given target language.
+     *
+     * Each call processes one batch (up to 20 strings). The JS loops until
+     * the server reports `done = true`. Only empty/null cells are touched —
+     * existing translations are never overwritten (Golden Source rule).
+     */
+    public function ajax_auto_translate_strings(): void {
+        check_ajax_referer( 'mml_admin_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => __( 'Permission denied.', 'my-multilang' ) ] );
+        }
+
+        $target_lang = sanitize_key( wp_unslash( $_POST['lang_code'] ?? '' ) );
+        if ( empty( $target_lang ) ) {
+            wp_send_json_error( [ 'message' => __( 'Missing language code.', 'my-multilang' ) ] );
+        }
+
+        $default_lang = MML_Languages::get_default_code();
+        if ( $target_lang === $default_lang ) {
+            wp_send_json_error( [ 'message' => __( 'Cannot translate to the default language.', 'my-multilang' ) ] );
+        }
+
+        $batch_size = 20;
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'my_strings';
+
+        // Fetch all rows; filter in PHP for cross-MySQL-version JSON compatibility.
+        $all_rows = $wpdb->get_results(
+            "SELECT `id`, `string_key`, `translations` FROM `{$table}` ORDER BY `id` ASC"
+        );
+
+        // Only rows that (a) lack the target-lang translation AND (b) have a source text.
+        $missing = [];
+        foreach ( $all_rows as $row ) {
+            $t           = json_decode( $row->translations, true ) ?: [];
+            $source_text = trim( $t[ $default_lang ] ?? '' );
+            $target_text = trim( $t[ $target_lang ]  ?? '' );
+            if ( $target_text === '' && $source_text !== '' ) {
+                $missing[] = [ 'row' => $row, 'translations' => $t, 'source' => $source_text ];
+            }
+        }
+
+        $total_missing = count( $missing );
+
+        if ( $total_missing === 0 ) {
+            wp_send_json_success( [
+                'translated'    => 0,
+                'total_missing' => 0,
+                'remaining'     => 0,
+                'done'          => true,
+            ] );
+        }
+
+        // Slice exactly one batch from the top of the missing list.
+        $batch            = array_slice( $missing, 0, $batch_size );
+        $translated_count = 0;
+
+        foreach ( $batch as $item ) {
+            $translated = MML_Auto_Translate::translate( $item['source'], $default_lang, $target_lang );
+
+            // Preserve source text as fallback — still store even if identical to avoid
+            // re-picking the row on the next batch call.
+            $t                   = $item['translations'];
+            $t[ $target_lang ]   = $translated;
+            MML_Strings::update( (int) $item['row']->id, wp_json_encode( $t, JSON_UNESCAPED_UNICODE ) );
+            $translated_count++;
+
+            usleep( 150000 ); // 150 ms between requests to respect rate limits.
+        }
+
+        // Recalculate remaining AFTER this batch (DB was just updated).
+        $remaining = max( 0, $total_missing - count( $batch ) );
+
+        wp_send_json_success( [
+            'translated'    => $translated_count,
+            'batch_size'    => count( $batch ),
+            'total_missing' => $total_missing,
+            'remaining'     => $remaining,
+            'done'          => ( $remaining === 0 ),
+        ] );
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────

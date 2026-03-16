@@ -122,21 +122,9 @@ class MML_Scanner {
         }
 
         if ( is_string( $value ) ) {
-            $len = mb_strlen( $value );
-            if ( $len < 3 || $len > 500 ) {
-                return;
-            }
-
-            $cleaned = trim( preg_replace( '/\s+/', ' ', $value ) );
-
-            // Skip URLs, HTML blocks, shortcodes
-            if ( preg_match( '/^https?:\/\//i', $cleaned ) ) { return; }
-            if ( strpos( $cleaned, '<' ) !== false && strpos( $cleaned, '>' ) !== false ) { return; }
-            if ( $cleaned[0] === '[' ) { return; }
-
-            if ( self::contains_vietnamese( $cleaned ) ) {
-                $found[] = $cleaned;
-            }
+            // Delegate to the shared candidate evaluator used by extract_from_content().
+            // This ensures label patterns like "Hotline:" are also captured in options.
+            self::add_candidate( $value, $found );
             return;
         }
 
@@ -306,37 +294,128 @@ class MML_Scanner {
     }
 
     /**
-     * Extract Vietnamese strings from raw post_content (HTML + Flatsome shortcodes).
+     * Extract translatable strings from raw post_content (HTML + Flatsome shortcodes).
      *
-     * Strategy:
-     *  1. Strip shortcode tags (e.g. [ux_banner ...]) but keep inner content.
-     *  2. Strip HTML tags via wp_strip_all_tags().
-     *  3. Split by line breaks and collect Vietnamese text segments (3–500 chars).
+     * Three-phase strategy to capture both long paragraphs AND short UI labels:
+     *
+     *  Phase A — Shortcode attribute values (Flatsome / UX Builder).
+     *    Attributes like text="Hotline:" are lost when shortcode brackets are
+     *    stripped, so they must be read first.
+     *
+     *  Phase B — Inline-element isolation.
+     *    Pulls inner text of <strong>, <b>, <h1>–<h6>, <li>, <dt>, <th>,
+     *    <label> as separate candidates so labels are separated from adjacent
+     *    non-translatable content (phone numbers, email addresses, etc.).
+     *
+     *  Phase C — Standard line-by-line pass.
+     *    Block-closing tags are replaced with newlines so single-line UX Builder
+     *    HTML is properly segmented before wp_strip_all_tags() runs.
+     *
+     * Acceptance: see add_candidate() — Vietnamese diacritics OR UI-label pattern.
      *
      * @param string $content Raw post_content.
      * @return string[]
      */
     public static function extract_from_content( string $content ): array {
-        // Remove shortcode opening/closing tags but preserve their inner text
-        $text = preg_replace( '/\[\/?\w[^\]]*\]/', ' ', $content );
-        // Strip HTML tags
-        $text = wp_strip_all_tags( $text );
-        // Split into segments on newlines/tabs
-        $segments = preg_split( '/[\n\r\t]+/', $text );
+        $candidates = [];
 
-        $found = [];
-        foreach ( $segments as $seg ) {
-            $seg = trim( preg_replace( '/\s+/', ' ', $seg ) );
-            $len = mb_strlen( $seg );
-            if ( $len < 3 || $len > 500 ) {
-                continue;
-            }
-            if ( self::contains_vietnamese( $seg ) ) {
-                $found[] = $seg;
+        // ── Phase A: Flatsome / UX Builder shortcode attribute values ─────────
+        // Visible text is often stored in shortcode attributes such as
+        // text="Hotline:" or title="Liên hệ". Stripping shortcode brackets
+        // first would destroy these values, so we read them before any stripping.
+        static $attr_pattern = null;
+        if ( null === $attr_pattern ) {
+            $attr_names   = implode( '|', [
+                'text', 'title', 'subtitle', 'description', 'label',
+                'heading', 'subheading', 'button_text', 'hover_text',
+                'placeholder', 'caption', 'alt',
+            ] );
+            $attr_pattern = '/\b(?:' . $attr_names . ')=(["\'])(.+?)\1/is';
+        }
+        if ( preg_match_all( $attr_pattern, $content, $attr_m, PREG_SET_ORDER ) ) {
+            foreach ( $attr_m as $m ) {
+                self::add_candidate(
+                    html_entity_decode( $m[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' ),
+                    $candidates
+                );
             }
         }
 
-        return array_values( array_unique( $found ) );
+        // ── Phase B: Inline / heading tag isolation ───────────────────────────
+        // Extract the inner text of short inline elements BEFORE stripping all
+        // HTML. This separates labels from adjacent non-translatable content,
+        // e.g. "<strong>Hotline:</strong> 097 123 4567" yields "Hotline:" as its
+        // own candidate so the phone number is never bundled into the key.
+        if ( preg_match_all(
+            '/<(?:strong|b|em|h[1-6]|li|dt|th|label)\b[^>]*>(.*?)<\/(?:strong|b|em|h[1-6]|li|dt|th|label)>/is',
+            $content,
+            $tag_m
+        ) ) {
+            foreach ( $tag_m[1] as $inner ) {
+                self::add_candidate(
+                    html_entity_decode( wp_strip_all_tags( $inner ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ),
+                    $candidates
+                );
+            }
+        }
+
+        // ── Phase C: Standard pass with block-boundary segmentation ──────────
+        // Inject newlines before block-closing tags so that single-line HTML
+        // (common in Flatsome/UX Builder) is properly split into sentences.
+        $std = preg_replace( '/<\/(p|div|li|h[1-6]|td|th|blockquote)\s*>/i', "\n", $content );
+        $std = preg_replace( '/<br\b[^>]*>/i', "\n", $std );
+        $std = preg_replace( '/\[\/?\w[^\]]*\]/', ' ', $std );  // strip shortcode tags
+        $std = wp_strip_all_tags( $std );
+        $std = html_entity_decode( $std, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+        foreach ( preg_split( '/[\n\r\t]+/', $std ) as $seg ) {
+            self::add_candidate( $seg, $candidates );
+        }
+
+        return array_values( array_unique( $candidates ) );
+    }
+
+    /**
+     * Evaluate one raw text value and push it onto $found if it qualifies
+     * as a translatable string.
+     *
+     * Accepted when:
+     *   (a) Contains at least one Vietnamese diacritic (U+1EA0–U+1EF9), OR
+     *   (b) UI-label pattern — ends with ":", 2–60 chars, has at least one letter.
+     *       Catches borrowed labels like "Hotline:", "Email:", "Tel:", "Fax:".
+     *
+     * Rejected when:
+     *   • length < 2 or > 500
+     *   • starts with http(s):// (URL)
+     *   • is a CSS hex colour (#fff, #1a2b3c)
+     *   • starts with "[" (leftover shortcode fragment)
+     *   • contains both "<" and ">" (raw HTML)
+     *   • looks like a standalone phone/ID number (digits + separators only)
+     *
+     * @param string   $raw   Unsanitised candidate text.
+     * @param string[] $found Accumulator (passed by reference).
+     */
+    private static function add_candidate( string $raw, array &$found ): void {
+        $text = trim( preg_replace( '/\s+/', ' ', $raw ) );
+        $len  = mb_strlen( $text );
+
+        if ( $len < 2 || $len > 500 )                                           { return; }
+        if ( preg_match( '/^https?:\/\//i', $text ) )                           { return; }
+        if ( preg_match( '/^#[0-9a-fA-F]{3,8}$/', $text ) )                    { return; } // hex colour
+        if ( isset( $text[0] ) && $text[0] === '[' )                            { return; } // shortcode
+        if ( strpos( $text, '<' ) !== false && strpos( $text, '>' ) !== false ) { return; } // raw HTML
+        if ( preg_match( '/^\d[\d\s\-+().]{3,}$/', $text ) )                   { return; } // phone / number
+
+        if ( self::contains_vietnamese( $text ) ) {
+            $found[] = $text;
+            return;
+        }
+
+        // UI-label pattern: ends with ":", short, contains at least one letter.
+        if ( $len <= 60
+             && substr( $text, -1 ) === ':'
+             && preg_match( '/[a-zA-Z\p{L}]/u', $text ) ) {
+            $found[] = $text;
+        }
     }
 
     // ── WooCommerce Gettext Scanner ─────────────────────────────────────────
@@ -567,6 +646,12 @@ class MML_Scanner {
                 continue; // not orphaned
             }
 
+            // Layer 3: no `original` attr → try to recover text from the backup table.
+            if ( $original === '' ) {
+                $backup_map = self::build_backup_text_map();
+                $original   = $backup_map[ $key ] ?? '';
+            }
+
             $found[] = [
                 'key'      => $key,
                 'original' => $original !== '' ? $original : $key,
@@ -576,234 +661,86 @@ class MML_Scanner {
         return $found;
     }
 
-    // ── Rescue Scanner — upgrade old-format [my_trans] shortcodes ──────────
-    //
-    // "Old format" = [my_trans key="X"] with NO `original` attribute.
-    //
-    // Three outcomes per shortcode:
-    //   upgradeable   — key exists in DB → we can add original="vi_text" inline
-    //   unresolvable  — key deleted from DB, no original attr → cannot recover text
-    //
-    // The rescue AJAX endpoint rewrites post_content for upgradeable shortcodes
-    // so future DB deletions are covered by the Layer-1 `original` fallback.
+    /**
+     * Compute the deterministic prefix part of a generated key (first 3 words,
+     * transliterated to ASCII, joined with underscores — NO random suffix).
+     * Used when matching backup texts to orphaned keys.
+     *
+     * @param string $text Vietnamese text.
+     * @return string
+     */
+    private static function compute_key_prefix( string $text ): string {
+        $ascii = strtr( $text, self::$vi_map );
+        $words = preg_split( '/\s+/', trim( $ascii ) );
+        $words = array_values( array_filter( $words, fn( $w ) => preg_match( '/[a-zA-Z0-9]/', $w ) ) );
+        $words = array_slice( $words, 0, 3 );
+        $base  = implode( '_', $words );
+        $base  = preg_replace( '/[^a-z0-9_]/i', '', strtolower( $base ) );
+        $base  = preg_replace( '/_+/', '_', $base );
+        return trim( $base, '_' ) ?: 'chuoi';
+    }
 
     /**
-     * Count posts that contain at least one old-format [my_trans] shortcode
-     * (i.e., the shortcode is present but has no `original` attribute).
-     * Used to show/hide the Rescue panel UI.
+     * Build a map of { key => original_vi_text } by scanning the backup table.
+     *
+     * Strategy (Layer 3):
+     *   1. Load all backup rows that have string_keys and post_content.
+     *   2. For each backup row, extract Vietnamese strings from the original content.
+     *   3. For each registered key in that row, find the text whose key prefix matches.
+     *
+     * The key prefix is the deterministic part of generate_key() — first 3 transliterated
+     * words joined with underscores — without the 3-char random suffix.
+     * e.g. key = "danh_muc_san_a1b" → prefix = "danh_muc_san"
+     *
+     * Built once per request and cached statically.
+     *
+     * @return array<string,string>  { key => vi_text }
      */
-    public static function count_rescue_targets(): int {
+    private static function build_backup_text_map(): array {
+        static $map = null;
+        if ( null !== $map ) {
+            return $map;
+        }
+
         global $wpdb;
-        // Quick pre-filter: posts that contain [my_trans but no original= attr.
+        $table = $wpdb->prefix . 'mml_backups';
+        $map   = [];
+
         $rows = $wpdb->get_results( // phpcs:ignore
-            "SELECT ID, post_content FROM `{$wpdb->posts}`
-             WHERE post_status IN ('publish','draft')
-               AND post_content LIKE '%[my_trans%'"
+            "SELECT `string_keys`, `post_content`
+             FROM `{$table}`
+             WHERE `string_keys` != '' AND `post_content` != ''
+             ORDER BY `id` ASC"
         ) ?: [];
 
-        $count = 0;
         foreach ( $rows as $row ) {
-            $targets = self::extract_rescue_targets( $row->post_content, [] );
-            if ( ! empty( $targets['upgradeable'] ) || ! empty( $targets['unresolvable'] ) ) {
-                $count++;
-            }
-        }
-        return $count;
-    }
-
-    /**
-     * Scan a batch of posts for old-format [my_trans] shortcodes.
-     *
-     * @param int $offset
-     * @param int $limit
-     * @return array {
-     *   upgradeable:  array of {key, vi_text, post_id, post_title},
-     *   unresolvable: array of {key, post_id, post_title},
-     *   post_count:   int
-     * }
-     */
-    public static function scan_rescue_batch( int $offset, int $limit = 10 ): array {
-        global $wpdb;
-
-        $posts = $wpdb->get_results( $wpdb->prepare( // phpcs:ignore
-            "SELECT ID, post_title, post_content
-             FROM `{$wpdb->posts}`
-             WHERE post_status IN ('publish','draft')
-               AND post_content LIKE '%[my_trans%'
-             ORDER BY ID ASC
-             LIMIT %d OFFSET %d",
-            $limit,
-            $offset
-        ) ) ?: [];
-
-        // Build lookup: key → vi translation text (one query for all registered strings)
-        $vi_map = [];
-        $def    = MML_Languages::get_default_code();
-        foreach ( MML_Strings::get_all() as $row ) {
-            $t = json_decode( $row->translations, true );
-            if ( is_array( $t ) && isset( $t[ $def ] ) && $t[ $def ] !== '' ) {
-                $vi_map[ $row->string_key ] = $t[ $def ];
-            }
-        }
-
-        $upgradeable  = [];
-        $unresolvable = [];
-
-        foreach ( $posts as $post ) {
-            $targets = self::extract_rescue_targets( $post->post_content, $vi_map );
-
-            foreach ( $targets['upgradeable'] as $tgt ) {
-                $upgradeable[] = [
-                    'key'        => $tgt['key'],
-                    'vi_text'    => $tgt['vi_text'],
-                    'post_id'    => (int) $post->ID,
-                    'post_title' => $post->post_title,
-                ];
-            }
-            foreach ( $targets['unresolvable'] as $tgt ) {
-                $unresolvable[] = [
-                    'key'        => $tgt['key'],
-                    'post_id'    => (int) $post->ID,
-                    'post_title' => $post->post_title,
-                ];
-            }
-        }
-
-        // Deduplicate upgradeable by key (same shortcode may appear in multiple posts).
-        $seen = [];
-        $upgradeable = array_values( array_filter( $upgradeable, function ( $i ) use ( &$seen ) {
-            if ( isset( $seen[ $i['key'] ] ) ) return false;
-            $seen[ $i['key'] ] = true;
-            return true;
-        } ) );
-
-        return [
-            'upgradeable'  => $upgradeable,
-            'unresolvable' => $unresolvable,
-            'post_count'   => count( $posts ),
-        ];
-    }
-
-    /**
-     * Execute the rescue upgrade: rewrite post_content so every old-format
-     * [my_trans key="X"] becomes [my_trans key="X" original="VI_TEXT"].
-     *
-     * Only processes shortcodes whose key currently EXISTS in wp_my_strings.
-     * Shortcodes already bearing `original=` are untouched.
-     *
-     * @return array { upgraded: int (shortcodes updated), posts_changed: int, unresolvable: int }
-     */
-    public static function run_rescue_upgrade(): array {
-        global $wpdb;
-
-        $posts = $wpdb->get_results( // phpcs:ignore
-            "SELECT ID, post_content
-             FROM `{$wpdb->posts}`
-             WHERE post_status IN ('publish','draft')
-               AND post_content LIKE '%[my_trans%'"
-        ) ?: [];
-
-        // Build vi_map for all registered strings
-        $vi_map = [];
-        $def    = MML_Languages::get_default_code();
-        foreach ( MML_Strings::get_all() as $row ) {
-            $t = json_decode( $row->translations, true );
-            if ( is_array( $t ) && isset( $t[ $def ] ) && $t[ $def ] !== '' ) {
-                $vi_map[ $row->string_key ] = $t[ $def ];
-            }
-        }
-
-        $upgraded      = 0;
-        $posts_changed = 0;
-        $unresolvable  = 0;
-
-        foreach ( $posts as $post ) {
-            $content = $post->post_content;
-
-            if ( false === strpos( $content, '[my_trans' ) ) {
+            $keys = array_filter( array_map( 'trim', explode( ',', $row->string_keys ) ) );
+            if ( empty( $keys ) ) {
                 continue;
             }
 
-            preg_match_all( '/\[my_trans\b([^\]]*)\]/', $content, $matches, PREG_SET_ORDER );
-            $new_content = $content;
+            // Extract Vietnamese strings from the golden-source backup content.
+            $texts = self::extract_from_content( $row->post_content );
 
-            foreach ( $matches as $match ) {
-                $atts     = shortcode_parse_atts( $match[1] );
-                $key      = isset( $atts['key'] ) ? sanitize_key( $atts['key'] ) : '';
-                $has_orig = isset( $atts['original'] ) && $atts['original'] !== '';
-
-                if ( empty( $key ) || $has_orig ) {
-                    continue; // already fine
+            foreach ( $keys as $bk ) {
+                if ( isset( $map[ $bk ] ) ) {
+                    continue; // already resolved in an earlier backup row
                 }
 
-                if ( ! isset( $vi_map[ $key ] ) ) {
-                    $unresolvable++;
-                    continue; // key gone, can't add original
+                // key format: "prefix_XXX" where prefix is 1+ words and XXX is 3 random chars.
+                // Strip the "_XXX" suffix to get the deterministic prefix.
+                $bk_prefix = ( strlen( $bk ) > 4 ) ? substr( $bk, 0, -4 ) : $bk;
+
+                foreach ( $texts as $text ) {
+                    if ( self::compute_key_prefix( $text ) === $bk_prefix ) {
+                        $map[ $bk ] = $text;
+                        break;
+                    }
                 }
-
-                // Build upgraded shortcode with original attribute
-                $old_sc = $match[0];
-                $new_sc = '[my_trans key="' . esc_attr( $key ) . '" original="' . esc_attr( $vi_map[ $key ] ) . '"]';
-                $new_content = str_replace( $old_sc, $new_sc, $new_content );
-                $upgraded++;
-            }
-
-            if ( $new_content !== $content ) {
-                wp_update_post( [
-                    'ID'           => (int) $post->ID,
-                    'post_content' => $new_content,
-                ] );
-                $posts_changed++;
             }
         }
 
-        return [
-            'upgraded'      => $upgraded,
-            'posts_changed' => $posts_changed,
-            'unresolvable'  => $unresolvable,
-        ];
+        return $map;
     }
 
-    /**
-     * Parse a post_content and classify old-format [my_trans] shortcodes.
-     *
-     * "Old-format" = shortcode with `key` but WITHOUT a non-empty `original` attribute.
-     *
-     * @param string               $content  Raw post_content.
-     * @param array<string,string> $vi_map   [ string_key => vi_text ] for all registered strings.
-     * @return array {
-     *   upgradeable:  array of {key, vi_text},
-     *   unresolvable: array of {key}
-     * }
-     */
-    private static function extract_rescue_targets( string $content, array $vi_map ): array {
-        $upgradeable  = [];
-        $unresolvable = [];
-
-        if ( false === strpos( $content, '[my_trans' ) ) {
-            return [ 'upgradeable' => $upgradeable, 'unresolvable' => $unresolvable ];
-        }
-
-        preg_match_all( '/\[my_trans\b([^\]]*)\]/', $content, $matches, PREG_SET_ORDER );
-        $seen = [];
-
-        foreach ( $matches as $match ) {
-            $atts     = shortcode_parse_atts( $match[1] );
-            $key      = isset( $atts['key'] ) ? sanitize_key( $atts['key'] ) : '';
-            $has_orig = isset( $atts['original'] ) && $atts['original'] !== '';
-
-            if ( empty( $key ) || $has_orig || isset( $seen[ $key ] ) ) {
-                continue;
-            }
-            $seen[ $key ] = true;
-
-            if ( isset( $vi_map[ $key ] ) ) {
-                $upgradeable[] = [ 'key' => $key, 'vi_text' => $vi_map[ $key ] ];
-            } else {
-                $unresolvable[] = [ 'key' => $key ];
-            }
-        }
-
-        return [ 'upgradeable' => $upgradeable, 'unresolvable' => $unresolvable ];
-    }
 }

@@ -22,17 +22,17 @@ class MML_Magic_Sync {
     public static function ajax_discover(): void {
         check_ajax_referer( 'mml_admin_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( 'Permission denied.' );
+            wp_send_json_error( __( 'Permission denied.', 'my-multilang' ) );
         }
 
         $target_lang = isset( $_POST['target_lang'] ) ? sanitize_key( $_POST['target_lang'] ) : '';
         if ( ! $target_lang ) {
-            wp_send_json_error( 'Missing target language.' );
+            wp_send_json_error( __( 'Missing target language.', 'my-multilang' ) );
         }
 
         $default_lang = MML_Languages::get_default_code();
         if ( $target_lang === $default_lang ) {
-            wp_send_json_error( 'Cannot sync to default language.' );
+            wp_send_json_error( __( 'Cannot sync to default language.', 'my-multilang' ) );
         }
 
         // Terms MUST come before posts in the queue so that when a post is cloned,
@@ -55,9 +55,19 @@ class MML_Magic_Sync {
                 continue;
             }
 
-            // Build map: term_id => WP_Term for untranslated terms only
+            // Build map: term_id => WP_Term for untranslated terms only.
+            // GOLDEN SOURCE RULE: only queue terms that belong to the default language
+            // (or are unregistered — assumed to be in the default language).
+            // Skipping clone terms (e.g. EN/TH categories) prevents the system from
+            // translating KO from EN instead of from VI.
             $pending_map = [];
             foreach ( $terms as $term ) {
+                // Skip terms registered as a non-default language (they are clones)
+                $term_registered_lang = MML_Translations::get_lang_for_object( (int) $term->term_id, 'term' );
+                if ( $term_registered_lang !== null && $term_registered_lang !== $default_lang ) {
+                    continue;
+                }
+
                 $existing = MML_Translations::get_translated_id( $term->term_id, $target_lang, 'term' );
                 if ( ! $existing ) {
                     $pending_map[ (int) $term->term_id ] = $term;
@@ -79,6 +89,9 @@ class MML_Magic_Sync {
         // 2. Posts, Pages, Products (Public Post Types) — queued AFTER terms
         $post_types = get_post_types( [ 'public' => true ] );
         unset( $post_types['attachment'] );
+        // Flatsome UX Blocks are global layout elements — one original serves all
+        // languages via the [my_trans] shortcode system. Never clone them.
+        unset( $post_types['blocks'] );
 
         foreach ( $post_types as $pt ) {
             $posts = get_posts( [
@@ -89,6 +102,14 @@ class MML_Magic_Sync {
             ] );
 
             foreach ( $posts as $pid ) {
+                // GOLDEN SOURCE RULE: skip posts registered as a non-default language.
+                // Only the default-language original should be cloned; its existing clones
+                // (e.g. EN version) are irrelevant sources and must never be added to the queue.
+                $post_registered_lang = MML_Translations::get_lang_for_object( $pid, 'post' );
+                if ( $post_registered_lang !== null && $post_registered_lang !== $default_lang ) {
+                    continue;
+                }
+
                 $existing = MML_Translations::get_translated_id( $pid, $target_lang, 'post' );
                 if ( ! $existing ) {
                     $post_items[] = [
@@ -114,7 +135,7 @@ class MML_Magic_Sync {
     public static function ajax_execute_item(): void {
         check_ajax_referer( 'mml_admin_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( 'Permission denied.' );
+            wp_send_json_error( __( 'Permission denied.', 'my-multilang' ) );
         }
 
         // Allow up to 5 minutes – translating long post_content with many text nodes
@@ -127,10 +148,29 @@ class MML_Magic_Sync {
         $default_lang = MML_Languages::get_default_code();
 
         if ( ! $item_type || ! $item_id || ! $target_lang ) {
-            wp_send_json_error( 'Invalid parameters.' );
+            wp_send_json_error( __( 'Invalid parameters.', 'my-multilang' ) );
         }
 
         if ( $item_type === 'post' ) {
+            // Safety guard: never clone Flatsome UX Blocks.
+            $source_pt = get_post_type( $item_id );
+            if ( $source_pt === 'blocks' ) {
+                wp_send_json_success( "Skipped UX Block #{$item_id} (global element — no clone needed)." );
+            }
+
+            // ── GOLDEN SOURCE SAFETY GATE ─────────────────────────────────
+            // If this item is registered as a non-default-language clone (shouldn't
+            // happen after the discover fix, but guard against stale queue data),
+            // resolve the default-language version from the same translation group.
+            $item_registered_lang = MML_Translations::get_lang_for_object( $item_id, 'post' );
+            if ( $item_registered_lang !== null && $item_registered_lang !== $default_lang ) {
+                $default_version = MML_Translations::get_translated_id( $item_id, $default_lang, 'post' );
+                if ( ! $default_version ) {
+                    wp_send_json_error( "Skipped post #{$item_id}: registered as [{$item_registered_lang}] clone and no [{$default_lang}] source found in its group." );
+                }
+                $item_id = $default_version;
+            }
+
             // ── 1. Clone the post (copies content, meta, taxonomies) ──────
             $new_id = MML_Cloner::clone_post( $item_id, $target_lang );
             if ( is_wp_error( $new_id ) ) {
@@ -212,6 +252,16 @@ class MML_Magic_Sync {
                 $tax = $source_term->taxonomy ?? '';
             }
 
+            // ── GOLDEN SOURCE SAFETY GATE ─────────────────────────────────
+            $item_registered_lang = MML_Translations::get_lang_for_object( $item_id, 'term' );
+            if ( $item_registered_lang !== null && $item_registered_lang !== $default_lang ) {
+                $default_version = MML_Translations::get_translated_id( $item_id, $default_lang, 'term' );
+                if ( ! $default_version ) {
+                    wp_send_json_error( "Skipped term #{$item_id}: registered as [{$item_registered_lang}] clone and no [{$default_lang}] source found." );
+                }
+                $item_id = $default_version;
+            }
+
             // ── 1. Clone the term ─────────────────────────────────────────
             $new_id = MML_Cloner::clone_term( $item_id, $tax, $target_lang );
             if ( is_wp_error( $new_id ) ) {
@@ -265,7 +315,7 @@ class MML_Magic_Sync {
             wp_send_json_success( "Translated Term #{$new_id}: {$translated_name} [slug: {$translated_slug}]" );
         }
 
-        wp_send_json_error( 'Unknown item type.' );
+        wp_send_json_error( __( 'Unknown item type.', 'my-multilang' ) );
     }
 
     /**
@@ -275,7 +325,7 @@ class MML_Magic_Sync {
     public static function ajax_purge(): void {
         check_ajax_referer( 'mml_admin_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( 'Permission denied.' );
+            wp_send_json_error( __( 'Permission denied.', 'my-multilang' ) );
         }
 
         set_time_limit( 300 );
@@ -284,11 +334,11 @@ class MML_Magic_Sync {
         $default_lang = MML_Languages::get_default_code();
 
         if ( ! $target_lang ) {
-            wp_send_json_error( 'Missing target language.' );
+            wp_send_json_error( __( 'Missing target language.', 'my-multilang' ) );
         }
 
         if ( $target_lang === $default_lang ) {
-            wp_send_json_error( 'Cannot purge the default language.' );
+            wp_send_json_error( __( 'Cannot purge the default language.', 'my-multilang' ) );
         }
 
         global $wpdb;
@@ -372,12 +422,12 @@ class MML_Magic_Sync {
     public static function ajax_sync_menus(): void {
         check_ajax_referer( 'mml_admin_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( 'Permission denied.' );
+            wp_send_json_error( __( 'Permission denied.', 'my-multilang' ) );
         }
 
         $target_lang = sanitize_key( wp_unslash( $_POST['target_lang'] ?? '' ) );
         if ( ! $target_lang ) {
-            wp_send_json_error( 'Missing target language.' );
+            wp_send_json_error( __( 'Missing target language.', 'my-multilang' ) );
         }
 
         $menus = wp_get_nav_menus();

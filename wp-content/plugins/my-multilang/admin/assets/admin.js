@@ -6,11 +6,84 @@
 
         init: function () {
             this.bindFlagPicker();
+            this.bindLangPresetPicker();
             this.bindDeleteConfirm();
             this.bindAddStringModal();
             this.bindDeleteString();
             this.bindCloneButtons();
             this.bindManualAddString();
+            this.bindAutoTranslate();
+        },
+
+        // ── Language Preset Picker ────────────────────────────────────────
+
+        bindLangPresetPicker: function () {
+            var $search  = $('#mml-lang-search');
+            var $select  = $('#mml-lang-preset');
+
+            if (!$search.length || !$select.length) return;
+
+            var registry = (mmlAdmin && mmlAdmin.langRegistry) ? mmlAdmin.langRegistry : [];
+            if (!registry.length) return;
+
+            // Separator label
+            var priorityCodes = ['en', 'zh-cn', 'ko', 'ru'];
+
+            // Populate select once
+            var allOpts = [];
+            var separatorInserted = false;
+            registry.forEach(function (lang, idx) {
+                if (!separatorInserted && idx > 0 && priorityCodes.indexOf(lang.code) === -1) {
+                    // First non-priority entry → insert visual divider
+                    allOpts.push({ text: '── Các ngôn ngữ khác ──', code: '', disabled: true });
+                    separatorInserted = true;
+                }
+                allOpts.push({ text: lang.name + ' (' + lang.code + ')', code: lang.code });
+            });
+
+            function renderOptions(filter) {
+                $select.empty();
+                allOpts.forEach(function (opt) {
+                    if (opt.disabled) {
+                        if (!filter) {
+                            $select.append($('<option>').val('').text(opt.text).prop('disabled', true));
+                        }
+                        return;
+                    }
+                    if (filter && opt.text.toLowerCase().indexOf(filter) === -1 && opt.code.toLowerCase().indexOf(filter) === -1) {
+                        return;
+                    }
+                    $select.append($('<option>').val(opt.code).text(opt.text));
+                });
+            }
+
+            renderOptions('');
+
+            // Pre-select if editing an existing language
+            var currentCode = $('#lang_code').val();
+            if (currentCode) {
+                $select.val(currentCode);
+            }
+
+            $search.on('input', function () {
+                renderOptions(this.value.trim().toLowerCase());
+                // Re-apply the selection if still visible
+                if ($select.find('option[value="' + currentCode + '"]').length) {
+                    $select.val(currentCode);
+                }
+            });
+
+            $select.on('change', function () {
+                var code = this.value;
+                if (!code) return;
+                var lang = registry.find(function (l) { return l.code === code; });
+                if (lang) {
+                    currentCode = code;
+                    $('#lang_name').val(lang.name);
+                    $('#lang_code').val(lang.code);
+                    $('#lang_ai_name').val(lang.ai_name);
+                }
+            });
         },
 
         // ── Flag Image Picker ─────────────────────────────────────────────
@@ -176,11 +249,11 @@
                     if (response.success && response.data.edit_url) {
                         window.location.href = response.data.edit_url;
                     } else {
-                        alert(response.data.message || 'Clone failed.');
+                        alert(response.data.message || mmlAdmin.i18n.cloneFailed);
                         $btn.text('+').css('pointer-events', '');
                     }
                 }).fail(function () {
-                    alert('Server error.');
+                    alert(mmlAdmin.i18n.serverError);
                     $btn.text('+').css('pointer-events', '');
                 });
             });
@@ -196,7 +269,9 @@
         _uxBlocksTotal:     0,
         _includeUxBlocks:   false,
         _includeGettext:    false,
+        _includeOrphaned:   false,
         _scanResults:       [],   // accumulated items
+        _orphanedResults:   [],   // accumulated orphaned items
         _batchSize:         8,
 
         bindScanner: function () {
@@ -221,6 +296,22 @@
             $(document).on('click', '#mml-process-btn, #mml-process-btn-bottom',
                 $.proxy(this.processApproved, this));
 
+            // Orphaned select-all
+            $(document).on('change', '#mml-orphaned-select-all', function () {
+                var checked = $(this).is(':checked');
+                $('.mml-orphaned-check').prop('checked', checked);
+                MMLAdmin.updateOrphanedCount();
+            });
+
+            // Orphaned individual checkbox
+            $(document).on('change', '.mml-orphaned-check', function () {
+                MMLAdmin.updateOrphanedCount();
+            });
+
+            // Recover button
+            $(document).on('click', '#mml-orphaned-recover-btn',
+                $.proxy(this.recoverOrphaned, this));
+
             // Session actions
             this.bindSessionActions();
         },
@@ -235,7 +326,9 @@
             self._uxBlocksTotal   = 0;
             self._includeUxBlocks = $('#mml-target-ux-blocks').is(':checked');
             self._includeGettext  = $('#mml-target-gettext').is(':checked');
+            self._includeOrphaned = $('#mml-target-orphaned').is(':checked');
             self._scanResults     = [];
+            self._orphanedResults = [];
 
             var parts      = [ 'options' ];
             if (self._includeGettext)  { parts.push('gettext'); }
@@ -246,10 +339,13 @@
             $('#mml-stop-scan').show().prop('disabled', false);
             $('#mml-scan-progress-wrap').show();
             $('#mml-scan-bar').css('width', '0%');
-            $('#mml-scan-status').text('Đang đếm các tùy chọn hệ thống…');
+            $('#mml-scan-status').text(mmlAdmin.i18n.scanCounting);
             $('#mml-results-tbody').empty();
             $('#mml-select-all').prop('checked', false);
             $('#mml-results-panel').hide();
+            $('#mml-orphaned-tbody').empty();
+            $('#mml-orphaned-panel').hide();
+            $('#mml-orphaned-result').hide();
             MMLAdmin.updateSelectedCount();
 
             $.post(mmlAdmin.ajaxurl, {
@@ -258,7 +354,7 @@
                 scan_target: scanTarget
             }, function (res) {
                 if (!res.success) {
-                    self.scanDone('Không thể đếm dữ liệu.');
+                    self.scanDone(mmlAdmin.i18n.scanCountError);
                     return;
                 }
                 self._optionsTotal  = parseInt(res.data.options_total,   10) || 0;
@@ -266,7 +362,13 @@
                 self._uxBlocksTotal = parseInt(res.data.ux_blocks_total, 10) || 0;
                 var total = self._optionsTotal + self._gettextTotal + self._uxBlocksTotal;
                 if (total === 0) {
-                    self.scanDone('Không tìm thấy dữ liệu nào để quét.');
+                    // No system strings to scan — still run orphaned scan if enabled.
+                    if (self._includeOrphaned) {
+                        $('#mml-scan-status').text(mmlAdmin.i18n.scanOrphaned);
+                        self.runOrphanedScan(0);
+                    } else {
+                        self.scanDone(mmlAdmin.i18n.scanNoData);
+                    }
                     return;
                 }
                 // Start with options phase (skip if 0)
@@ -281,12 +383,12 @@
                     self._scanOffset = 0;
                 }
                 self.runScanBatch();
-            }).fail(function () { self.scanDone('Lỗi server.'); });
+            }).fail(function () { self.scanDone(mmlAdmin.i18n.serverError); });
         },
 
         runScanBatch: function () {
             var self = this;
-            if (!self._scanRunning) { self.scanDone('Đã dừng.'); return; }
+            if (!self._scanRunning) { self.scanDone(mmlAdmin.i18n.scanStopped); return; }
 
             var phase = self._scanPhase;
 
@@ -297,7 +399,7 @@
                 limit:       self._batchSize,
                 scan_target: phase
             }, function (res) {
-                if (!res.success) { self.scanDone('Lỗi khi quét.'); return; }
+                if (!res.success) { self.scanDone(mmlAdmin.i18n.scanError); return; }
 
                 var data = res.data;
 
@@ -331,7 +433,7 @@
                     if (phase === 'options' && self._includeGettext && self._gettextTotal > 0) {
                         self._scanPhase  = 'gettext';
                         self._scanOffset = 0;
-                        $('#mml-scan-status').text('Đang quét WooCommerce gettext strings…');
+                        $('#mml-scan-status').text(mmlAdmin.i18n.scanWcGettext);
                         self.runScanBatch();
                         return;
                     }
@@ -339,22 +441,27 @@
                     if ((phase === 'options' || phase === 'gettext') && self._includeUxBlocks && self._uxBlocksTotal > 0) {
                         self._scanPhase  = 'ux_blocks';
                         self._scanOffset = 0;
-                        $('#mml-scan-status').text('Đang quét UX Blocks…');
+                        $('#mml-scan-status').text(mmlAdmin.i18n.scanUxBlocks);
                         self.runScanBatch();
                         return;
                     }
                     // All phases done
                     $('#mml-scan-bar').css('width', '100%');
-                    self.scanDone('Hoàn tất. Tìm thấy ' + self._scanResults.length + ' chuỗi.');
                     if (self._scanResults.length > 0) {
                         $('#mml-results-panel').show();
                         MMLAdmin.updateSelectedCount();
+                    }
+                    if (self._includeOrphaned) {
+                        $('#mml-scan-status').text(mmlAdmin.i18n.scanOrphaned);
+                        self.runOrphanedScan(0);
+                    } else {
+                        self.scanDone('Hoàn tất. Tìm thấy ' + self._scanResults.length + ' chuỗi.');
                     }
                 } else {
                     self._scanOffset = data.next_offset;
                     self.runScanBatch();
                 }
-            }).fail(function () { self.scanDone('Lỗi server.'); });
+            }).fail(function () { self.scanDone(mmlAdmin.i18n.serverError); });
         },
 
         appendResultRow: function (item, index) {
@@ -421,7 +528,7 @@
             var confirmMsg = 'Xử lý ' + items.length + ' chuỗi đã chọn?\nCác chuỗi sẽ được đăng ký trong My Strings và tự động dịch. Tên trên frontend sẽ được đổi thông qua gettext filter. Bạn có thể hoàn tác từ phần Restore Sessions.';
             if (!window.confirm(confirmMsg)) { return; }
 
-            $('#mml-process-btn, #mml-process-btn-bottom').prop('disabled', true).text('Đang xử lý…');
+            $('#mml-process-btn, #mml-process-btn-bottom').prop('disabled', true).text(mmlAdmin.i18n.processing);
             $('#mml-process-progress').show();
             $('#mml-process-result').hide();
 
@@ -430,7 +537,7 @@
                 nonce:  mmlAdmin.nonce,
                 items:  JSON.stringify(items)
             }, function (res) {
-                $('#mml-process-btn, #mml-process-btn-bottom').text('Xử lý các mục đã chọn');
+                $('#mml-process-btn, #mml-process-btn-bottom').text(mmlAdmin.i18n.processSelected);
                 $('#mml-process-progress').hide();
                 if (res.success) {
                     $('#mml-process-result').removeClass('notice-error').addClass('notice-success')
@@ -446,68 +553,198 @@
                     $('#mml-process-btn, #mml-process-btn-bottom').prop('disabled', false);
                 }
             }).fail(function () {
-                $('#mml-process-btn, #mml-process-btn-bottom').text('Xử lý các mục đã chọn').prop('disabled', false);
+                $('#mml-process-btn, #mml-process-btn-bottom').text(mmlAdmin.i18n.processSelected).prop('disabled', false);
                 $('#mml-process-progress').hide();
                 $('#mml-process-result').removeClass('notice-success').addClass('notice-error')
-                    .html('<p>Lỗi server.</p>').show();
+                    .html('<p>' + mmlAdmin.i18n.serverError + '</p>').show();
             });
         },
 
         bindSessionActions: function () {
             var self = this;
 
-            // Restore session
+            // ── Global restore all ─────────────────────────────────────────
+            $(document).on('click', '#mml-global-restore-btn', function () {
+                if (!window.confirm(
+                    'Khôi phục TẤT CẢ bài viết về nội dung gốc?\n\n' +
+                    'Thao tác này sẽ:\n' +
+                    '• Ghi đè post_content bằng bản sao lưu gốc\n' +
+                    '• GIỮ NGUYÊN tất cả chuỗi đã đăng ký trong wp_my_strings\n' +
+                    '• Xóa toàn bộ bảng backup sau khi hoàn tất\n\n' +
+                    'Tiếp tục?'
+                )) { return; }
+
+                var $btn = $(this);
+                $btn.prop('disabled', true).find('.dashicons').addClass('dashicons-update-alt').removeClass('dashicons-undo');
+
+                $.post(mmlAdmin.ajaxurl, {
+                    action: 'mml_global_restore',
+                    nonce:  mmlAdmin.nonce
+                }, function (res) {
+                    $btn.prop('disabled', false).find('.dashicons').addClass('dashicons-undo').removeClass('dashicons-update-alt');
+                    if (res.success) {
+                        $('#mml-sessions-table').hide();
+                        $('#mml-no-sessions').show();
+                        $('#mml-restore-result').removeClass('notice-error').addClass('notice-success')
+                            .html('<p>' + (res.data.message || 'Đã khôi phục.') + '</p>').show();
+                    } else {
+                        $('#mml-restore-result').removeClass('notice-success').addClass('notice-error')
+                            .html('<p>' + (res.data || mmlAdmin.i18n.restoreError) + '</p>').show();
+                    }
+                }).fail(function () {
+                    $btn.prop('disabled', false);
+                    $('#mml-restore-result').removeClass('notice-success').addClass('notice-error')
+                        .html('<p>' + mmlAdmin.i18n.serverError + '</p>').show();
+                });
+            });
+
+            // ── Preview toggle ─────────────────────────────────────────────
+            $(document).on('click', '.mml-preview-btn', function () {
+                var sid        = $(this).data('sid');
+                var $panel     = $('.mml-preview-panel[data-sid="' + sid + '"]');
+                var $btn       = $(this);
+
+                // Toggle off if already open
+                if ($panel.is(':visible')) {
+                    $panel.slideUp(200);
+                    $btn.find('.dashicons').removeClass('dashicons-hidden').addClass('dashicons-visibility');
+                    return;
+                }
+
+                // Already loaded — just show
+                if ($panel.data('loaded')) {
+                    $panel.slideDown(200);
+                    $btn.find('.dashicons').removeClass('dashicons-visibility').addClass('dashicons-hidden');
+                    return;
+                }
+
+                $btn.prop('disabled', true);
+
+                $.post(mmlAdmin.ajaxurl, {
+                    action:     'mml_scan_session_preview',
+                    nonce:      mmlAdmin.nonce,
+                    session_id: sid
+                }, function (res) {
+                    $btn.prop('disabled', false);
+                    if (!res.success) {
+                        $panel.html('<p style="color:#d63638;padding:6px 0;">' + mmlAdmin.i18n.previewError + '</p>').slideDown(200);
+                        $panel.data('loaded', true);
+                        return;
+                    }
+
+                    var d       = res.data;
+                    var html    = '<div class="mml-preview-content">';
+
+                    // Orphaned keys notice
+                    if (d.orphaned_keys && d.orphaned_keys.length) {
+                        html += '<div class="notice notice-warning inline" style="margin:0 0 10px;padding:6px 12px;">' +
+                            '<strong>Dữ liệu gốc khả dụng, nhưng chuỗi dịch đã bị xóa:</strong> ' +
+                            d.orphaned_keys.map(function(k) { return '<code>' + $('<span>').text(k).html() + '</code>'; }).join(', ') +
+                            '</div>';
+                    }
+
+                    // UX Block posts
+                    if (d.posts && d.posts.length) {
+                        $.each(d.posts, function (i, p) {
+                            html += '<div class="mml-preview-post">';
+                            html += '<strong><code class="mml-type-badge">' + $('<span>').text(p.post_type).html() + '</code> ' + $('<span>').text(p.post_title).html() + '</strong>';
+                            if (p.keys && p.keys.length) {
+                                html += '<ul class="mml-preview-keys">';
+                                $.each(p.keys, function (j, k) {
+                                    var orig = (d.key_texts && d.key_texts[k]) ? d.key_texts[k] : '';
+                                    html += '<li><code>' + $('<span>').text(k).html() + '</code>';
+                                    if (orig) { html += ' &rarr; <em>' + $('<span>').text(orig).html() + '</em>'; }
+                                    html += '</li>';
+                                });
+                                html += '</ul>';
+                            }
+                            html += '</div>';
+                        });
+                    }
+
+                    // Options/gettext keys
+                    if (d.options_keys && d.options_keys.length) {
+                        html += '<div class="mml-preview-post">';
+                        html += '<strong>Options / gettext keys</strong>';
+                        html += '<ul class="mml-preview-keys">';
+                        $.each(d.options_keys, function (j, k) {
+                            var orig = (d.key_texts && d.key_texts[k]) ? d.key_texts[k] : '';
+                            html += '<li><code>' + $('<span>').text(k).html() + '</code>';
+                            if (orig) { html += ' &rarr; <em>' + $('<span>').text(orig).html() + '</em>'; }
+                            html += '</li>';
+                        });
+                        html += '</ul></div>';
+                    }
+
+                    html += '</div>';
+
+                    $panel.html(html).data('loaded', true).slideDown(200);
+                    $btn.find('.dashicons').removeClass('dashicons-visibility').addClass('dashicons-hidden');
+                }).fail(function () {
+                    $btn.prop('disabled', false);
+                    $panel.html('<p style="color:#d63638;padding:6px 0;">' + mmlAdmin.i18n.serverError + '</p>').slideDown(200);
+                    $panel.data('loaded', true);
+                });
+            });
+
+            // ── Restore session ────────────────────────────────────────────
             $(document).on('click', '.mml-restore-btn', function () {
                 var sid = $(this).data('sid');
                 if (!window.confirm(mmlAdmin.confirmRestore)) { return; }
                 var $btn = $(this);
-                $btn.prop('disabled', true).text('Đang khôi phục…');
+                $btn.prop('disabled', true).html('<span class="dashicons dashicons-update-alt"></span> ' + mmlAdmin.i18n.restoring);
                 $.post(mmlAdmin.ajaxurl, {
                     action:     'mml_scan_restore',
                     nonce:      mmlAdmin.nonce,
                     session_id: sid
                 }, function (res) {
                     if (res.success) {
-                        $btn.closest('.mml-session-row').fadeOut(300, function () {
+                        $btn.closest('tr.mml-session-row').fadeOut(300, function () {
                             $(this).remove();
-                            if (!$('.mml-session-row').length) { $('#mml-no-sessions').show(); }
+                            if (!$('.mml-session-row').length) {
+                                $('#mml-sessions-table').hide();
+                                $('#mml-no-sessions').show();
+                            }
                         });
                         $('#mml-restore-result').removeClass('notice-error').addClass('notice-success')
                             .html('<p>' + (res.data.message || 'Đã khôi phục.') + '</p>').show();
                     } else {
-                        $btn.prop('disabled', false).text('Khôi phục');
+                        $btn.prop('disabled', false).html('<span class="dashicons dashicons-backup"></span> ' + mmlAdmin.i18n.restore);
                         $('#mml-restore-result').removeClass('notice-success').addClass('notice-error')
-                            .html('<p>' + (res.data.message || 'Lỗi khôi phục.') + '</p>').show();
+                            .html('<p>' + (res.data.message || mmlAdmin.i18n.restoreError) + '</p>').show();
                     }
                 }).fail(function () {
-                    $btn.prop('disabled', false).text('Khôi phục');
+                    $btn.prop('disabled', false).html('<span class="dashicons dashicons-backup"></span> ' + mmlAdmin.i18n.restore);
                     $('#mml-restore-result').removeClass('notice-success').addClass('notice-error')
-                        .html('<p>Lỗi server.</p>').show();
+                        .html('<p>' + mmlAdmin.i18n.serverError + '</p>').show();
                 });
             });
 
-            // Discard session
+            // ── Discard session ────────────────────────────────────────────
             $(document).on('click', '.mml-discard-btn', function () {
                 var sid = $(this).data('sid');
                 if (!window.confirm(mmlAdmin.confirmDiscard)) { return; }
                 var $btn = $(this);
-                $btn.prop('disabled', true).text('Đang xóa…');
+                $btn.prop('disabled', true).html('<span class="dashicons dashicons-update-alt"></span> ' + mmlAdmin.i18n.discarding);
                 $.post(mmlAdmin.ajaxurl, {
                     action:     'mml_scan_delete_session',
                     nonce:      mmlAdmin.nonce,
                     session_id: sid
                 }, function (res) {
                     if (res.success) {
-                        $btn.closest('.mml-session-row').fadeOut(300, function () {
+                        $btn.closest('tr.mml-session-row').fadeOut(300, function () {
                             $(this).remove();
-                            if (!$('.mml-session-row').length) { $('#mml-no-sessions').show(); }
+                            if (!$('.mml-session-row').length) {
+                                $('#mml-sessions-table').hide();
+                                $('#mml-no-sessions').show();
+                            }
                         });
                     } else {
-                        $btn.prop('disabled', false).text('Bỏ qua');
+                        $btn.prop('disabled', false).html('<span class="dashicons dashicons-trash"></span> ' + mmlAdmin.i18n.discard);
                         alert(res.data.message || 'Xóa thất bại.');
                     }
                 }).fail(function () {
-                    $btn.prop('disabled', false).text('Bỏ qua');
+                    $btn.prop('disabled', false).html('<span class="dashicons dashicons-trash"></span> ' + mmlAdmin.i18n.discard);
                 });
             });
         },
@@ -527,7 +764,7 @@
                 }
 
                 var $btn = $('#mml-manual-add-btn');
-                $btn.prop('disabled', true).text('Đang xử lý…');
+                $btn.prop('disabled', true).text(mmlAdmin.i18n.processing);
                 $('#mml-manual-add-status').text('').css('color', '');
 
                 $.post(mmlAdmin.ajaxurl, {
@@ -550,206 +787,296 @@
                     }
                 }).fail(function () {
                     $btn.prop('disabled', false).text('Add & Translate');
-                    $('#mml-manual-add-status').text('Lỗi server.').css('color', '#d63638');
+                    $('#mml-manual-add-status').text(mmlAdmin.i18n.serverError).css('color', '#d63638');
                 });
             });
         },
 
-        reloadSessions: function () {            $.post(mmlAdmin.ajaxurl, {
+        // ── Auto-Translate Missing Strings ────────────────────────────────
+
+        bindAutoTranslate: function () {
+            if (!$('#mml-autotrans-btn').length) { return; }
+
+            $('#mml-autotrans-btn').on('click', $.proxy(this._runAutoTranslate, this));
+        },
+
+        _runAutoTranslate: function () {
+            var self        = this;
+            var $btn        = $('#mml-autotrans-btn');
+            var $langSel    = $('#mml-autotrans-lang');
+            var langCode    = $langSel.val();
+            var langName    = $langSel.find('option:selected').data('name') || langCode;
+
+            if (!langCode) {
+                alert(mmlAdmin.i18n.autoTranslateSelect);
+                return;
+            }
+
+            $btn.prop('disabled', true)
+                .html('<span class="dashicons dashicons-update-alt" style="margin-top:3px;"></span> ' + mmlAdmin.i18n.autoTranslating);
+            $langSel.prop('disabled', true);
+            $('#mml-autotrans-progress-wrap').show();
+            $('#mml-autotrans-bar').css('width', '0%');
+            $('#mml-autotrans-status').text(mmlAdmin.i18n.autoTranslating);
+            $('#mml-autotrans-result').hide();
+
+            var totalTranslated = 0;
+            var totalMissing    = 0; // set on first response
+
+            function runBatch() {
+                $.post(mmlAdmin.ajaxurl, {
+                    action:    'mml_auto_translate_strings',
+                    nonce:     mmlAdmin.nonce,
+                    lang_code: langCode
+                }, function (res) {
+                    if (!res.success) {
+                        self._autoTranslateDone($btn, $langSel, false,
+                            res.data && res.data.message ? res.data.message : mmlAdmin.i18n.serverError);
+                        return;
+                    }
+
+                    var d = res.data;
+
+                    // Capture total_missing on first call.
+                    if (totalMissing === 0 && d.total_missing > 0) {
+                        totalMissing = d.total_missing;
+                    }
+
+                    totalTranslated += d.translated || 0;
+
+                    // Update progress bar.
+                    if (totalMissing > 0) {
+                        var pct = Math.min(100, Math.round(totalTranslated / totalMissing * 100));
+                        $('#mml-autotrans-bar').css('width', pct + '%');
+                        $('#mml-autotrans-status').text(totalTranslated + ' / ' + totalMissing);
+                    }
+
+                    if (d.done) {
+                        $('#mml-autotrans-bar').css('width', '100%');
+                        if (totalTranslated === 0) {
+                            self._autoTranslateDone($btn, $langSel, true,
+                                mmlAdmin.i18n.autoTranslateNone, true);
+                        } else {
+                            var msg = mmlAdmin.i18n.autoTranslateDone
+                                .replace('%d', totalTranslated)
+                                .replace('%s', langName);
+                            self._autoTranslateDone($btn, $langSel, true, msg, false);
+                            // Reload page so textareas reflect new values.
+                            setTimeout(function () { window.location.reload(); }, 1800);
+                        }
+                    } else {
+                        // Schedule next batch (small delay to avoid hammering server).
+                        setTimeout(runBatch, 300);
+                    }
+                }).fail(function () {
+                    self._autoTranslateDone($btn, $langSel, false, mmlAdmin.i18n.serverError);
+                });
+            }
+
+            runBatch();
+        },
+
+        _autoTranslateDone: function ($btn, $langSel, success, message, isInfo) {
+            $btn.prop('disabled', false)
+                .html('<span class="dashicons dashicons-translation" style="margin-top:3px;"></span> ' + mmlAdmin.i18n.autoTranslateBtn);
+            $langSel.prop('disabled', false);
+
+            var cssClass = isInfo ? 'notice-info' : (success ? 'notice-success' : 'notice-error');
+            $('#mml-autotrans-result')
+                .removeClass('notice-info notice-success notice-error')
+                .addClass('notice ' + cssClass)
+                .html('<p>' + message + '</p>')
+                .show();
+        },
+
+        reloadSessions: function () {
+            $.post(mmlAdmin.ajaxurl, {
                 action: 'mml_scan_get_sessions',
                 nonce:  mmlAdmin.nonce
             }, function (res) {
                 if (!res.success) { return; }
                 var sessions = res.data || [];
-                var $list    = $('#mml-sessions-list');
-                $list.find('.mml-session-row').remove();
+                var $tbody   = $('#mml-sessions-list');
+                $tbody.empty();
+
                 if (!sessions.length) {
+                    $('#mml-sessions-table').hide();
                     $('#mml-no-sessions').show();
                     return;
                 }
+
                 $('#mml-no-sessions').hide();
+                $('#mml-sessions-table').show();
+
                 $.each(sessions, function (i, s) {
-                    var label = s.created_at + ' — ' +
-                        (s.key_count > 0 ? s.key_count + ' chuỗi' : s.post_count + ' bài');
-                    var row = '<div class="mml-session-row">' +
-                        '<span class="mml-session-label">' + label + '</span>' +
-                        '<button type="button" class="button mml-restore-btn" data-sid="' + s.session_id + '">Khôi phục</button>' +
-                        '<button type="button" class="button mml-discard-btn" data-sid="' + s.session_id + '">Bỏ qua</button>' +
-                        '</div>';
-                    $list.append(row);
+                    var count = (s.key_count > 0) ? s.key_count + ' keys' : s.post_count + ' entries';
+                    var contentHtml = '';
+
+                    if (s.posts && s.posts.length) {
+                        $.each(s.posts, function (j, p) {
+                            contentHtml += '<div class="mml-session-post-line">' +
+                                '<code class="mml-type-badge">' + $('<span>').text(p.post_type).html() + '</code> ' +
+                                $('<span>').text(p.post_title).html() +
+                                '</div>';
+                        });
+                    } else {
+                        contentHtml = '<em class="mml-no-posts-label">Options / gettext strings only</em>';
+                    }
+
+                    var row = '<tr class="mml-session-row" data-sid="' + s.session_id + '">' +
+                        '<td><strong>' + $('<span>').text(s.created_at).html() + '</strong><br>' +
+                        '<span class="mml-session-meta">' + $('<span>').text(count).html() + '</span></td>' +
+                        '<td>' +
+                            '<div class="mml-session-content-summary">' + contentHtml + '</div>' +
+                            '<div class="mml-preview-panel" data-sid="' + s.session_id + '" style="display:none;"></div>' +
+                        '</td>' +
+                        '<td class="mml-session-actions">' +
+                            '<button type="button" class="button mml-preview-btn" data-sid="' + s.session_id + '">' +
+                                '<span class="dashicons dashicons-visibility"></span> Preview</button> ' +
+                            '<button type="button" class="button mml-restore-btn" data-sid="' + s.session_id + '">' +
+                                '<span class="dashicons dashicons-backup"></span> Restore</button> ' +
+                            '<button type="button" class="button mml-discard-btn" data-sid="' + s.session_id + '">' +
+                                '<span class="dashicons dashicons-trash"></span> Discard</button>' +
+                        '</td>' +
+                        '</tr>';
+                    $tbody.append(row);
                 });
             });
         },
 
-        // ── Rescue Scanner (Phase D) ─────────────────────────────────────
+        // ── Orphaned Shortcode Scanner ────────────────────────────────────
         //
-        // Two-step workflow:
-        //   Step 1 — "Scan" batches through all posts to find old-format
-        //             [my_trans key="X"] shortcodes without `original=`.
-        //             Results split into upgradeable / unresolvable tables.
-        //   Step 2 — "Upgrade All" sends a single AJAX call that rewrites
-        //             every upgradeable shortcode in-place.
+        // Runs after the main scan phases complete (when #mml-target-orphaned is checked).
+        // Calls mml_scan_orphaned in batches; results appear in the dedicated
+        // "Chuỗi mồ côi" panel with individual or bulk Recover buttons.
 
-        _rescueUpgradeable:  [],
-        _rescueUnresolvable: [],
-
-        bindRescueScanner: function () {
-            if (!$('#mml-rescue-scan-btn').length) { return; }
-
-            $('#mml-rescue-scan-btn').on('click', $.proxy(this.startRescueScan, this));
-            $('#mml-rescue-upgrade-btn').on('click', $.proxy(this.runRescueUpgrade, this));
-        },
-
-        startRescueScan: function () {
-            var self = this;
-            self._rescueUpgradeable  = [];
-            self._rescueUnresolvable = [];
-
-            $('#mml-rescue-scan-btn').prop('disabled', true).text('Đang quét…');
-            $('#mml-rescue-upgrade-btn').hide();
-            $('#mml-rescue-status').text('');
-            $('#mml-rescue-progress-wrap').show();
-            $('#mml-rescue-bar').css('width', '5%');
-            $('#mml-rescue-results').hide();
-            $('#mml-rescue-upgradeable-tbody').empty();
-            $('#mml-rescue-unresolvable-tbody').empty();
-            $('#mml-rescue-upgrade-result').hide();
-
-            self._runRescueScanBatch(0);
-        },
-
-        _runRescueScanBatch: function (offset) {
+        runOrphanedScan: function (offset) {
             var self = this;
 
             $.post(mmlAdmin.ajaxurl, {
-                action: 'mml_scan_rescue_scan',
+                action: 'mml_scan_orphaned',
                 nonce:  mmlAdmin.nonce,
                 offset: offset,
                 limit:  10
             }, function (res) {
                 if (!res.success) {
-                    self._rescueScanDone('Lỗi khi quét: ' + (res.data || ''));
+                    self.scanDone('Hoàn tất. Quét chuỗi mồ côi thất bại.');
                     return;
                 }
                 var data = res.data;
 
-                // Accumulate results
-                if (data.upgradeable && data.upgradeable.length) {
-                    $.each(data.upgradeable, function (i, item) {
-                        // Deduplicate by key
-                        var already = false;
-                        for (var j = 0; j < self._rescueUpgradeable.length; j++) {
-                            if (self._rescueUpgradeable[j].key === item.key) { already = true; break; }
-                        }
-                        if (!already) {
-                            self._rescueUpgradeable.push(item);
-                            var row = '<tr><td><code>' + $('<span>').text(item.key).html() + '</code></td>' +
-                                      '<td>' + $('<span>').text(item.vi_text).html() + '</td>' +
-                                      '<td>' + $('<span>').text(item.post_title || 'Post #' + item.post_id).html() + '</td></tr>';
-                            $('#mml-rescue-upgradeable-tbody').append(row);
-                        }
+                if (data.items && data.items.length) {
+                    $.each(data.items, function (i, item) {
+                        self._orphanedResults.push(item);
+                        self.appendOrphanedRow(item, self._orphanedResults.length - 1);
                     });
+                    $('#mml-orphaned-num').text(self._orphanedResults.length);
+                    MMLAdmin.updateOrphanedCount();
                 }
-                if (data.unresolvable && data.unresolvable.length) {
-                    $.each(data.unresolvable, function (i, item) {
-                        var already = false;
-                        for (var j = 0; j < self._rescueUnresolvable.length; j++) {
-                            if (self._rescueUnresolvable[j].key === item.key) { already = true; break; }
-                        }
-                        if (!already) {
-                            self._rescueUnresolvable.push(item);
-                            var row = '<tr><td><code>' + $('<span>').text(item.key).html() + '</code></td>' +
-                                      '<td>' + $('<span>').text(item.post_title || 'Post #' + item.post_id).html() + '</td></tr>';
-                            $('#mml-rescue-unresolvable-tbody').append(row);
-                        }
-                    });
-                }
-
-                // Update progress bar proportionally
-                var pct = data.done ? 100 : Math.min(90, 5 + (offset / Math.max(offset + 10, 1)) * 85);
-                $('#mml-rescue-bar').css('width', pct + '%');
 
                 if (!data.done) {
-                    self._runRescueScanBatch(data.next_offset);
+                    self.runOrphanedScan(data.next_offset);
                 } else {
-                    self._rescueScanDone(null);
+                    var msg = 'Hoàn tất. Tìm thấy ' + self._scanResults.length + ' chuỗi hệ thống';
+                    if (self._orphanedResults.length > 0) {
+                        msg += ' và ' + self._orphanedResults.length + ' chuỗi mồ côi.';
+                        $('#mml-orphaned-panel').show();
+                    } else {
+                        msg += '. Không có chuỗi mồ côi.';
+                    }
+                    self.scanDone(msg);
                 }
             }).fail(function () {
-                self._rescueScanDone('Lỗi server.');
+                self.scanDone('Hoàn tất. Lỗi server khi quét chuỗi mồ côi.');
             });
         },
 
-        _rescueScanDone: function (errorMsg) {
-            var u = this._rescueUpgradeable.length;
-            var r = this._rescueUnresolvable.length;
+        appendOrphanedRow: function (item, index) {
+            var sourceBadge = '<code class="mml-option-badge">' +
+                $('<span>').text(item.option_name || '').html() + '</code>';
 
-            $('#mml-rescue-bar').css('width', '100%');
-            $('#mml-rescue-scan-btn').prop('disabled', false).text('🔍 Step 1 — Scan for Old Shortcodes');
+            var textDisplay = item.text && item.text !== item.key
+                ? $('<span>').text(item.text).html()
+                : '<em style="color:#999;">Không có văn bản gốc</em>';
 
-            if (errorMsg) {
-                $('#mml-rescue-status').text(errorMsg).css('color', '#d63638');
-                return;
-            }
-
-            if (u === 0 && r === 0) {
-                $('#mml-rescue-status').text('✅ Tất cả shortcode đã có thuộc tính original — không cần nâng cấp.').css('color', '#00a32a');
-                return;
-            }
-
-            $('#mml-rescue-status').text('Tìm thấy ' + u + ' có thể nâng cấp, ' + r + ' không thể khôi phục.').css('color', '');
-            $('#mml-rescue-upgradeable-count').text(u);
-            $('#mml-rescue-unresolvable-count').text(r);
-
-            if (u > 0) { $('#mml-rescue-upgradeable-panel').show(); }
-            if (r > 0) { $('#mml-rescue-unresolvable-panel').show(); }
-            $('#mml-rescue-results').show();
-
-            if (u > 0) {
-                $('#mml-rescue-upgrade-btn').show();
-            }
+            var row = '<tr id="mml-orphaned-row-' + index + '">' +
+                '<td><input type="checkbox" class="mml-orphaned-check" data-index="' + index + '" checked></td>' +
+                '<td><code>' + $('<span>').text(item.key).html() + '</code></td>' +
+                '<td class="mml-col-original">' + textDisplay + '</td>' +
+                '<td>' + sourceBadge + '</td>' +
+                '</tr>';
+            $('#mml-orphaned-tbody').append(row);
         },
 
-        runRescueUpgrade: function () {
-            var self = this;
-            if (!window.confirm('Nâng cấp ' + self._rescueUpgradeable.length + ' shortcode? Thao tác này sẽ chỉnh sửa post_content.')) {
-                return;
-            }
+        updateOrphanedCount: function () {
+            var count = $('.mml-orphaned-check:checked').length;
+            $('#mml-orphaned-recover-btn').prop('disabled', count === 0);
+        },
 
-            $('#mml-rescue-upgrade-btn').prop('disabled', true).text('Đang nâng cấp…');
-            $('#mml-rescue-status').text('').css('color', '');
-            $('#mml-rescue-upgrade-result').hide();
+        recoverOrphaned: function () {
+            var self = this;
+            var items = [];
+
+            $('.mml-orphaned-check:checked').each(function () {
+                var index = parseInt($(this).data('index'), 10);
+                var item  = self._orphanedResults[index];
+                if (item) {
+                    items.push({
+                        text:        item.text  || item.key,
+                        key:         item.key,
+                        post_id:     0,
+                        source_type: 'orphaned'
+                    });
+                }
+            });
+
+            if (!items.length) { return; }
+
+            var confirmMsg = 'Khôi phục ' + items.length + ' chuỗi mồ côi?\n' +
+                'Các key sẽ được đăng ký lại vào wp_my_strings và tự động dịch.';
+            if (!window.confirm(confirmMsg)) { return; }
+
+            $('#mml-orphaned-recover-btn').prop('disabled', true).text('Đang khôi phục…');
+            $('#mml-orphaned-progress').show();
+            $('#mml-orphaned-result').hide();
 
             $.post(mmlAdmin.ajaxurl, {
-                action: 'mml_scan_rescue_upgrade',
-                nonce:  mmlAdmin.nonce
+                action: 'mml_scan_process',
+                nonce:  mmlAdmin.nonce,
+                items:  JSON.stringify(items)
             }, function (res) {
-                $('#mml-rescue-upgrade-btn').prop('disabled', false).text('⬆ Step 2 — Upgrade All Upgradeable');
+                $('#mml-orphaned-recover-btn').text('↩ Khôi phục Đã Chọn');
+                $('#mml-orphaned-progress').hide();
                 if (res.success) {
-                    $('#mml-rescue-upgrade-result')
+                    $('#mml-orphaned-result')
                         .removeClass('notice-error').addClass('notice-success')
-                        .html('<p>' + (res.data.message || 'Hoàn tất!') + '</p>').show();
-                    // Hide upgrade button — upgrade is done
-                    $('#mml-rescue-upgrade-btn').hide();
+                        .html('<p>' + (res.data.message || 'Đã khôi phục thành công!') + '</p>')
+                        .show();
+                    // Remove recovered rows
+                    $('.mml-orphaned-check:checked').closest('tr').remove();
+                    MMLAdmin.updateOrphanedCount();
+                    self.reloadSessions();
                 } else {
-                    $('#mml-rescue-upgrade-result')
+                    $('#mml-orphaned-result')
                         .removeClass('notice-success').addClass('notice-error')
-                        .html('<p>' + (res.data || 'Có lỗi xảy ra.') + '</p>').show();
+                        .html('<p>' + (res.data || 'Có lỗi xảy ra.') + '</p>')
+                        .show();
+                    $('#mml-orphaned-recover-btn').prop('disabled', false);
                 }
             }).fail(function () {
-                $('#mml-rescue-upgrade-btn').prop('disabled', false).text('⬆ Step 2 — Upgrade All Upgradeable');
-                $('#mml-rescue-upgrade-result')
+                $('#mml-orphaned-recover-btn').text('↩ Khôi phục Đã Chọn').prop('disabled', false);
+                $('#mml-orphaned-progress').hide();
+                $('#mml-orphaned-result')
                     .removeClass('notice-success').addClass('notice-error')
                     .html('<p>Lỗi server.</p>').show();
             });
-        }
+        },
+
     };
 
     $(document).ready(function () {
         MMLAdmin.init();
         MMLAdmin.bindScanner();
-        if (typeof MMLAdmin.bindRescueScanner === 'function') {
-            MMLAdmin.bindRescueScanner();
-        }
     });
 
 }(jQuery));

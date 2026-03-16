@@ -83,12 +83,13 @@ class MML_Languages {
             [
                 'name'             => sanitize_text_field( $data['name'] ),
                 'code'             => sanitize_key( $data['code'] ),
+                'ai_name'          => sanitize_text_field( $data['ai_name'] ?? '' ),
                 'flag_id'          => absint( $data['flag_id'] ?? 0 ),
                 'is_default'       => empty( $data['is_default'] ) ? 0 : 1,
                 'sort_order'       => absint( $data['sort_order'] ?? 0 ),
                 'use_english_slug' => empty( $data['use_english_slug'] ) ? 0 : 1,
             ],
-            [ '%s', '%s', '%d', '%d', '%d', '%d' ]
+            [ '%s', '%s', '%s', '%d', '%d', '%d', '%d' ]
         );
 
         self::$cache = null; // invalidate cache
@@ -114,18 +115,34 @@ class MML_Languages {
             [
                 'name'             => sanitize_text_field( $data['name'] ),
                 'code'             => sanitize_key( $data['code'] ),
+                'ai_name'          => sanitize_text_field( $data['ai_name'] ?? '' ),
                 'flag_id'          => absint( $data['flag_id'] ?? 0 ),
                 'is_default'       => empty( $data['is_default'] ) ? 0 : 1,
                 'sort_order'       => absint( $data['sort_order'] ?? 0 ),
                 'use_english_slug' => empty( $data['use_english_slug'] ) ? 0 : 1,
             ],
             [ 'id' => $id ],
-            [ '%s', '%s', '%d', '%d', '%d', '%d' ],
+            [ '%s', '%s', '%s', '%d', '%d', '%d', '%d' ],
             [ '%d' ]
         );
 
         self::$cache = null;
         return false !== $result;
+    }
+
+    /**
+     * Get a single language by its row ID.
+     *
+     * @param int $id
+     * @return object|null
+     */
+    public static function get_by_id( int $id ): ?object {
+        foreach ( self::get_all() as $lang ) {
+            if ( (int) $lang->id === $id ) {
+                return $lang;
+            }
+        }
+        return null;
     }
 
     /**
@@ -148,5 +165,56 @@ class MML_Languages {
         $result = $wpdb->delete( self::table(), [ 'id' => $id ], [ '%d' ] );
         self::$cache = null;
         return (bool) $result;
+    }
+
+    /**
+     * Count how many posts/terms in wp_my_translations are registered under $code.
+     * Used to block language deletion when clones still exist in the database.
+     *
+     * @param string $code Language code, e.g. 'ko'.
+     * @return int
+     */
+    public static function count_clones( string $code ): int {
+        global $wpdb;
+        $table = $wpdb->prefix . 'my_translations';
+        return (int) $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT COUNT(*) FROM `{$table}` WHERE `lang_code` = %s",
+                $code
+            )
+        );
+    }
+
+    /**
+     * Remove a language's translation entries from every wp_my_strings JSON blob.
+     * Must be called BEFORE deleting the language row so no ghost translations linger.
+     * Automatically flushes the string cache.
+     *
+     * @param string $code Language code to purge, e.g. 'ko'.
+     * @return void
+     */
+    public static function purge_string_translations( string $code ): void {
+        global $wpdb;
+        $strings_table = $wpdb->prefix . 'my_strings';
+
+        $rows = $wpdb->get_results( "SELECT `id`, `translations` FROM `{$strings_table}`" );
+        foreach ( $rows as $row ) {
+            $map = json_decode( $row->translations, true );
+            if ( ! is_array( $map ) || ! array_key_exists( $code, $map ) ) {
+                continue;
+            }
+            unset( $map[ $code ] );
+            $wpdb->update(
+                $strings_table,
+                [ 'translations' => wp_json_encode( $map, JSON_UNESCAPED_UNICODE ) ],
+                [ 'id' => (int) $row->id ],
+                [ '%s' ],
+                [ '%d' ]
+            );
+        }
+
+        if ( class_exists( 'MML_Strings' ) ) {
+            MML_Strings::clear_cache();
+        }
     }
 }

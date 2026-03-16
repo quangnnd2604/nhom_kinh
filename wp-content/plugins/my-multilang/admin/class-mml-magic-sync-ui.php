@@ -32,7 +32,9 @@ class MML_Magic_Sync_UI {
                                 <?php foreach ( $languages as $lang ) : 
                                     if ( $lang->code === $default_code ) continue;
                                 ?>
-                                    <option value="<?php echo esc_attr( $lang->code ); ?>">
+                                    <option value="<?php echo esc_attr( $lang->code ); ?>"
+                                        data-name="<?php echo esc_attr( $lang->name ); ?>"
+                                        data-ai="<?php echo esc_attr( $lang->ai_name ?? $lang->name ); ?>">
                                         <?php echo esc_html( $lang->name . ' (' . strtoupper( $lang->code ) . ')' ); ?>
                                     </option>
                                 <?php endforeach; ?>
@@ -64,6 +66,26 @@ class MML_Magic_Sync_UI {
                     </div>
                 </div>
 
+            </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- Pre-Sync Confirmation Modal                                     -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <div id="mml-sync-confirm-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:999990; align-items:center; justify-content:center;">
+            <div id="mml-sync-confirm-modal" style="background:#fff; border-radius:6px; padding:32px 36px; max-width:520px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.25); position:relative;">
+                <button type="button" id="mml-confirm-close" style="position:absolute;top:12px;right:14px;background:none;border:none;font-size:20px;cursor:pointer;color:#666;">&times;</button>
+                <h2 style="margin-top:0; color:#1d2327;">🚀 Xác nhận Magic Sync</h2>
+                <p id="mml-confirm-lang-line" style="font-size:15px; border-left:4px solid #2271b1; padding:10px 12px; background:#f0f6fc; border-radius:0 4px 4px 0; margin-bottom:16px;"></p>
+                <p id="mml-confirm-example-line" style="color:#555; font-size:13px; margin-bottom:24px;"></p>
+                <div style="background:#fff8e5; border:1px solid #f0b849; border-radius:4px; padding:10px 14px; margin-bottom:24px; font-size:12px; color:#50575e;">
+                    ⚠️ Thao tác này sẽ <strong>clone và dịch hàng loạt</strong> toàn bộ bài viết, trang, sản phẩm và danh mục chưa có bản dịch.
+                    Không thể hoàn tác tự động — hãy chắc chắn trước khi bắt đầu.
+                </div>
+                <div style="display:flex; gap:10px; justify-content:flex-end;">
+                    <button type="button" id="mml-confirm-cancel" class="button">Hủy bỏ</button>
+                    <button type="button" id="mml-confirm-go" class="button button-primary" style="background:#2271b1; border-color:#2271b1;">✔ Xác nhận &amp; Bắt đầu</button>
+                </div>
             </div>
         </div>
 
@@ -102,6 +124,11 @@ class MML_Magic_Sync_UI {
         </div>
 
         <script>
+        var mmlSyncI18n = <?php echo wp_json_encode( [
+            'discoveryFailed'      => __( 'Discovery failed.', 'my-multilang' ),
+            'pleaseSelectLang'     => __( 'Please select a target language first.', 'my-multilang' ),
+            'pleaseSelectPurgeLang'=> __( 'Please select a language to purge first.', 'my-multilang' ),
+        ], JSON_UNESCAPED_UNICODE ); ?>;
         jQuery(document).ready(function($) {
             let syncItems = [];
             let currentIndex = 0;
@@ -189,21 +216,67 @@ class MML_Magic_Sync_UI {
                 });
             }
 
-            // Start Sync Button
+            // ── Build a registry example map from language data attributes ─
+            var exampleMap = {};
+            <?php
+            if ( function_exists( 'mml_language_registry_by_code' ) ) {
+                foreach ( mml_language_registry_by_code() as $code => $entry ) {
+                    printf(
+                        "exampleMap[%s] = %s;\n            ",
+                        wp_json_encode( $code ),
+                        wp_json_encode( $entry['example'] )
+                    );
+                }
+            }
+            ?>
+
+            // ── Confirmation modal helpers ─────────────────────────────────
+            var $overlay = $('#mml-sync-confirm-overlay');
+
+            function showSyncModal( code, name, aiName ) {
+                var example = exampleMap[code] || '';
+                var aiLabel = aiName || name;
+                $('#mml-confirm-lang-line').html(
+                    'Ngôn ngữ đích được chọn: <strong>' + name + ' (' + code.toUpperCase() + ')</strong>'
+                );
+                $('#mml-confirm-example-line').html(
+                    example
+                        ? 'Ví dụ bản dịch: <em>"Xin chào"</em> &nbsp;⟶&nbsp; <strong>"' + example + '"</strong> &nbsp;<span style="color:#888;font-size:11px;">(' + aiLabel + ')</span>'
+                        : ''
+                );
+                $overlay.css('display', 'flex');
+            }
+
+            function hideSyncModal() {
+                $overlay.hide();
+            }
+
+            $('#mml-confirm-close, #mml-confirm-cancel').on('click', hideSyncModal);
+            $overlay.on('click', function(e) {
+                if (e.target === this) hideSyncModal();
+            });
+
+            // Start Sync Button — opens the modal instead of browser confirm
             $('#mml-start-sync-btn').on('click', function() {
                 targetLang = $('#mml_target_lang').val();
                 if (!targetLang) {
-                    alert('Please select a target language first.');
+                    alert(mmlSyncI18n.pleaseSelectLang);
                     return;
                 }
+                var $opt    = $('#mml_target_lang option:selected');
+                var name    = $opt.data('name')   || targetLang;
+                var aiName  = $opt.data('ai')     || name;
+                showSyncModal(targetLang, name, aiName);
+            });
 
-                const confirmSync = confirm(`Are you sure you want to run Magic Sync for [ ${targetLang} ]? This will start bulk cloning and auto-translating via Google.`);
-                if (!confirmSync) return;
+            // Confirmed — actually start the sync
+            $('#mml-confirm-go').on('click', function() {
+                hideSyncModal();
 
-                $(this).prop('disabled', true);
+                $('#mml-start-sync-btn').prop('disabled', true);
                 $('#mml-sync-spinner').addClass('is-active');
                 $('#mml-sync-dashboard').slideDown();
-                
+
                 $('#mml-sync-log').empty();
                 $('#mml-progress-bar').css('width', '0%');
                 $('#mml-sync-counter').text('0 / 0');
@@ -226,7 +299,7 @@ class MML_Magic_Sync_UI {
                         if (res.success) {
                             syncItems = res.data.items;
                             logMsg(`Found ${syncItems.length} items to translate.`);
-                            
+
                             if (syncItems.length > 0) {
                                 processNextItem(); // Start Step 2 LOOP
                             } else {
@@ -237,14 +310,14 @@ class MML_Magic_Sync_UI {
                             logMsg(`Discovery Error: ${res.data}`, true);
                             $('#mml-sync-spinner').removeClass('is-active');
                             $('#mml-start-sync-btn').prop('disabled', false);
-                            $('#mml-sync-status').text('Discovery Failed.').css('color', 'red');
+                            $('#mml-sync-status').text(mmlSyncI18n.discoveryFailed).css('color', 'red');
                         }
                     },
                     error: function() {
                         logMsg('Network error during discovery phase.', true);
                         $('#mml-sync-spinner').removeClass('is-active');
                         $('#mml-start-sync-btn').prop('disabled', false);
-                        $('#mml-sync-status').text('Discovery Failed.').css('color', 'red');
+                        $('#mml-sync-status').text(mmlSyncI18n.discoveryFailed).css('color', 'red');
                     }
                 });
             });
@@ -252,7 +325,7 @@ class MML_Magic_Sync_UI {
             $('#mml-purge-btn').on('click', function() {
                 const purgeLang = $('#mml_purge_lang').val();
                 if (!purgeLang) {
-                    alert('Please select a language to purge first.');
+                    alert(mmlSyncI18n.pleaseSelectPurgeLang);
                     return;
                 }
 

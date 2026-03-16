@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 class MML_Scanner_UI {
 
     public static function render_page(): void {
-        $sessions = MML_Backup::get_sessions();
+        $sessions = MML_Backup::get_sessions_detailed();
         include MML_PATH . 'admin/views/scanner.php';
     }
 }

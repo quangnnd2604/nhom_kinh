@@ -161,26 +161,20 @@ class MML_Auto_Translate {
         return implode( '', $result );
     }
 
-    /**
-     * Translates multiple strings at once.
-     * @param array  $texts
-     * @param string $source
-     * @param string $target
-     * @return array
-     */
-    public static function translate_array( array $texts, string $source, string $target ): array {
-        $translated = [];
-        foreach ( $texts as $key => $text ) {
-            // Add a small delay to avoid rate limiting
-            usleep( 200000 ); // 0.2s
-            $translated[ $key ] = self::translate( $text, $source, $target );
-        }
-        return $translated;
-    }
-
     private static function map_language_code( string $code ): string {
-        $code = strtolower( substr( $code, 0, 2 ) );
-        // Add specific mappings if needed. 'zh' is universally understood by Google API.
-        return $code;
+        // Explicit overrides take priority — handles compound tags like zh-cn/zh-tw.
+        $map = [
+            'zh-cn' => 'zh-CN',
+            'zh-tw' => 'zh-TW',
+            'zh'    => 'zh-CN', // unqualified 'zh' → Simplified
+        ];
+
+        $lower = strtolower( $code );
+        if ( isset( $map[ $lower ] ) ) {
+            return $map[ $lower ];
+        }
+
+        // Default: use the first 2-character subtag (e.g. 'en', 'ko', 'th', 'ru').
+        return strtolower( substr( $lower, 0, 2 ) );
     }
 }

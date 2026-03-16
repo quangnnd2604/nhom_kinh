@@ -159,6 +159,150 @@ class MML_Backup {
     }
 
     /**
+     * Get detailed session info with post titles and types.
+     *
+     * Returns sessions enriched with per-post data for the restore UI table.
+     *
+     * @return object[] Each item: { session_id, created_at, post_count, key_count, posts[] }
+     */
+    public static function get_sessions_detailed(): array {
+        global $wpdb;
+        $table = self::table();
+
+        $rows = $wpdb->get_results(
+            "SELECT `session_id`,
+                    COUNT(*) AS post_count,
+                    MIN(`created_at`) AS created_at,
+                    GROUP_CONCAT(`string_keys` SEPARATOR ',') AS all_keys,
+                    GROUP_CONCAT(DISTINCT `post_id` SEPARATOR ',') AS post_ids
+             FROM `{$table}`
+             GROUP BY `session_id`
+             ORDER BY MIN(`created_at`) DESC
+             LIMIT 20"
+        ); // phpcs:ignore
+
+        if ( ! $rows ) {
+            return [];
+        }
+
+        foreach ( $rows as $row ) {
+            $keys           = array_filter( explode( ',', (string) $row->all_keys ) );
+            $row->key_count = count( array_unique( $keys ) );
+
+            // Enrich with post titles/types for UX Block sessions.
+            $raw_ids  = array_filter( explode( ',', (string) $row->post_ids ) );
+            $post_ids = array_filter( array_map( 'intval', $raw_ids ) );
+
+            $row->posts = [];
+            foreach ( $post_ids as $pid ) {
+                if ( $pid <= 0 ) {
+                    continue;
+                }
+                $post         = get_post( $pid );
+                $row->posts[] = [
+                    'post_id'    => $pid,
+                    'post_title' => $post ? ( $post->post_title ?: "(ID #{$pid})" ) : "(ID #{$pid})",
+                    'post_type'  => $post ? $post->post_type : 'unknown',
+                ];
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * System-level string keys that must survive every restore operation.
+     * These power the woocommerce_result_count filter and UI widgets.
+     */
+    private static function system_keys(): array {
+        return [
+            'wc_showing_all_d_results',
+            'wc_showing_single_result',
+            'wc_showing_d_d_of_d_results',
+            'rem_cat_card_btn',
+            'rem_cat_view_all',
+            'wc_search_products',
+            'wc_reviews_count',
+            'wc_add_review',
+            'wc_first_review',
+            'wc_your_rating',
+            'wc_your_review',
+        ];
+    }
+
+    /**
+     * Full global restore: reverts posts, purges scanner strings (excluding
+     * system patterns), then clears the backup table and all caches.
+     *
+     * Steps:
+     *  1. Restore every backed-up post to its golden content.
+     *  2. Delete all auto-scanned strings EXCEPT the protected system keys
+     *     (WooCommerce result-count patterns + rem_category_grid buttons).
+     *  3. Truncate wp_mml_backups (clean slate).
+     *  4. Clear all transients + object cache.
+     *
+     * @return array { restored_posts: int, removed_keys: int }
+     */
+    public static function global_restore_all(): array {
+        global $wpdb;
+        $table = self::table();
+
+        // ── 1. Collect golden (oldest) backup for each post ───────────────
+        $all_rows = $wpdb->get_results( // phpcs:ignore
+            "SELECT post_id, post_content FROM `{$table}` WHERE post_id > 0 ORDER BY id ASC"
+        ) ?: [];
+
+        $golden = [];
+        foreach ( $all_rows as $row ) {
+            $pid = (int) $row->post_id;
+            if ( ! isset( $golden[ $pid ] ) ) {
+                $golden[ $pid ] = $row->post_content;
+            }
+        }
+
+        // ── 2. Restore posts ──────────────────────────────────────────────
+        $restored_posts = 0;
+        foreach ( $golden as $post_id => $original_content ) {
+            $result = wp_update_post( [
+                'ID'           => $post_id,
+                'post_content' => $original_content,
+            ] );
+            if ( $result && ! is_wp_error( $result ) ) {
+                $restored_posts++;
+            }
+        }
+
+        // ── 3. Purge auto-scanned strings, preserving system keys ─────────
+        // System keys (WC result-count, UI buttons) are is_autoscanned=1 but
+        // must survive every restore so the Shop page stays translatable.
+        $protected      = self::system_keys();
+        $placeholders   = implode( ', ', array_fill( 0, count( $protected ), '%s' ) );
+        $removed_keys   = (int) $wpdb->get_var( $wpdb->prepare( // phpcs:ignore
+            "SELECT COUNT(*) FROM `{$wpdb->prefix}my_strings`
+             WHERE is_autoscanned = 1 AND string_key NOT IN ({$placeholders})",
+            ...$protected
+        ) );
+        $wpdb->query( $wpdb->prepare( // phpcs:ignore
+            "DELETE FROM `{$wpdb->prefix}my_strings`
+             WHERE is_autoscanned = 1 AND string_key NOT IN ({$placeholders})",
+            ...$protected
+        ) );
+
+        // ── 4. Truncate backups ────────────────────────────────────────────
+        $wpdb->query( 'TRUNCATE TABLE `' . $table . '`' ); // phpcs:ignore
+
+        // ── 5. Clear transients + object cache ────────────────────────────
+        $wpdb->query( "DELETE FROM `{$wpdb->options}` WHERE option_name LIKE '_transient_%'" ); // phpcs:ignore
+        $wpdb->query( "DELETE FROM `{$wpdb->options}` WHERE option_name LIKE '_site_transient_%'" ); // phpcs:ignore
+        wp_cache_flush();
+
+        return [
+            'restored_posts' => $restored_posts,
+            'removed_keys'   => $removed_keys,
+        ];
+    }
+
+    /**
      * Get all backup rows for a session.
      *
      * @param string $session_id

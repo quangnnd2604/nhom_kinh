@@ -23,6 +23,30 @@ class MML_Cloner {
             return new WP_Error( 'not_found', __( 'Source post not found.', 'my-multilang' ) );
         }
 
+        // ── GOLDEN SOURCE GUARD ────────────────────────────────────────────────
+        // If $source_id is a non-default-language clone, silently redirect to the
+        // default-language original so content is ALWAYS sourced from the canonical
+        // version — regardless of which entry point triggered this clone.
+        $default_lang    = MML_Languages::get_default_code();
+        $registered_lang = MML_Translations::get_lang_for_object( $source_id, 'post' );
+        if ( $registered_lang !== null && $registered_lang !== $default_lang ) {
+            $canonical_id = MML_Translations::get_translated_id( $source_id, $default_lang, 'post' );
+            if ( ! $canonical_id ) {
+                return new WP_Error(
+                    'no_source',
+                    sprintf(
+                        /* translators: 1: post ID  2: clone lang code  3: default lang code */
+                        __( 'Cannot clone post #%1$d: it is a "%2$s" clone with no "%3$s" original in its translation group.', 'my-multilang' ),
+                        $source_id,
+                        $registered_lang,
+                        $default_lang
+                    )
+                );
+            }
+            $source_id = $canonical_id;
+            $source    = get_post( $source_id );
+        }
+
         // Block cloning if a translation already exists
         $existing = MML_Translations::get_translated_id( $source_id, $target_lang, 'post' );
         if ( $existing ) {
@@ -51,7 +75,7 @@ class MML_Cloner {
             'post_content'   => $source->post_content,  // Flatsome UX Builder shortcodes preserved verbatim
             'post_excerpt'   => $source->post_excerpt,
             'post_status'    => 'draft',
-            'post_title'     => $source->post_title . ' [' . strtoupper( $target_lang ) . ']',
+            'post_title'     => $source->post_title,
             'post_type'      => $source->post_type,
             'post_parent'    => $source->post_parent,
             'menu_order'     => $source->menu_order,
@@ -181,6 +205,30 @@ class MML_Cloner {
             return new WP_Error( 'not_found', __( 'Source term not found.', 'my-multilang' ) );
         }
 
+        // ── GOLDEN SOURCE GUARD ────────────────────────────────────────────────
+        // If $source_term_id is a non-default-language clone, resolve the canonical
+        // default-language original before cloning so that slug and name are always
+        // derived from the true source, never from an intermediate translation.
+        $default_lang    = MML_Languages::get_default_code();
+        $registered_lang = MML_Translations::get_lang_for_object( $source_term_id, 'term' );
+        if ( $registered_lang !== null && $registered_lang !== $default_lang ) {
+            $canonical_id = MML_Translations::get_translated_id( $source_term_id, $default_lang, 'term' );
+            if ( ! $canonical_id ) {
+                return new WP_Error(
+                    'no_source',
+                    sprintf(
+                        /* translators: 1: term ID  2: clone lang code  3: default lang code */
+                        __( 'Cannot clone term #%1$d: it is a "%2$s" clone with no "%3$s" original in its translation group.', 'my-multilang' ),
+                        $source_term_id,
+                        $registered_lang,
+                        $default_lang
+                    )
+                );
+            }
+            $source_term_id = $canonical_id;
+            $source         = get_term( $source_term_id, $taxonomy );
+        }
+
         // Check for existing translation
         $existing = MML_Translations::get_translated_id( $source_term_id, $target_lang, 'term' );
         if ( $existing ) {
@@ -215,7 +263,7 @@ class MML_Cloner {
         }
 
         $new_term = wp_insert_term(
-            $source->name . ' [' . strtoupper( $target_lang ) . ']',
+            $source->name,
             $taxonomy,
             [
                 'description' => $source->description,

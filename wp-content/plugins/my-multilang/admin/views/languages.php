@@ -13,6 +13,28 @@
     <?php if ( $error_msg ) : ?>
         <div class="notice notice-error is-dismissible"><p><?php echo esc_html( $error_msg ); ?></p></div>
     <?php endif; ?>
+    <?php if ( $clone_block ) : ?>
+        <div class="notice notice-error is-dismissible">
+            <p>
+                <strong><?php esc_html_e( 'Không thể xóa ngôn ngữ này.', 'my-multilang' ); ?></strong><br>
+                <?php printf(
+                    /* translators: 1: clone count  2: language code */
+                    esc_html__( 'Hiện đang có %1$d bản clone (bài viết / sản phẩm / danh mục) liên quan đến ngôn ngữ "%2$s". Bạn phải thực hiện xóa tất cả bản clone của ngôn ngữ này trước khi tiếp tục.', 'my-multilang' ),
+                    (int) $clone_block['count'],
+                    esc_html( $clone_block['code'] )
+                ); ?>
+            </p>
+            <p>
+                <a href="<?php echo esc_url( admin_url( 'admin.php?page=mml-magic-sync' ) ); ?>" class="button button-small">
+                    <?php printf(
+                        /* translators: %s: language code */
+                        esc_html__( '⚡ Đi đến Magic Sync → Danger Zone để xóa tất cả bản sao "%s"', 'my-multilang' ),
+                        esc_html( $clone_block['code'] )
+                    ); ?>
+                </a>
+            </p>
+        </div>
+    <?php endif; ?>
 
     <!-- Language Table -->
     <table class="wp-list-table widefat fixed striped mml-lang-table">
@@ -21,6 +43,7 @@
                 <th><?php esc_html_e( 'Flag', 'my-multilang' ); ?></th>
                 <th><?php esc_html_e( 'Language Name', 'my-multilang' ); ?></th>
                 <th><?php esc_html_e( 'Code', 'my-multilang' ); ?></th>
+                <th><?php esc_html_e( 'AI Name', 'my-multilang' ); ?></th>
                 <th><?php esc_html_e( 'Default', 'my-multilang' ); ?></th>
                 <th><?php esc_html_e( 'English Slug', 'my-multilang' ); ?></th>
                 <th><?php esc_html_e( 'Order', 'my-multilang' ); ?></th>
@@ -41,8 +64,7 @@
                     } ?>
                 </td>
                 <td><?php echo esc_html( $lang->name ); ?></td>
-                <td><code><?php echo esc_html( $lang->code ); ?></code></td>
-                <td><?php echo $lang->is_default ? '<span class="mml-default-star">★</span>' : ''; ?></td>
+                <td><code><?php echo esc_html( $lang->code ); ?></code></td>                <td><small style="color:#888;"><?php echo esc_html( $lang->ai_name ?? '' ); ?></small></td>                <td><?php echo $lang->is_default ? '<span class="mml-default-star">★</span>' : ''; ?></td>
                 <td>
                     <?php if ( ! empty( $lang->use_english_slug ) ) : ?>
                         <span title="<?php esc_attr_e( 'Slugs will be generated in English', 'my-multilang' ); ?>" style="color:#2271b1;font-weight:600;">&#10003; EN</span>
@@ -56,8 +78,8 @@
                         <?php esc_html_e( 'Edit', 'my-multilang' ); ?>
                     </a>
                     <?php if ( ! $lang->is_default ) : ?>
-                        |
-                        <a href="<?php echo esc_url( wp_nonce_url(
+                    |<br>
+                    <a href="<?php echo esc_url( wp_nonce_url(
                             add_query_arg( [ 'action' => 'mml_delete_language', 'lang_id' => $lang->id ], admin_url( 'admin-post.php' ) ),
                             'mml_delete_language'
                         ) ); ?>" class="mml-delete-link" style="color:#cc0000;">
@@ -79,6 +101,17 @@
             <input type="hidden" name="action" value="mml_save_language">
             <input type="hidden" name="lang_id" value="<?php echo $edit_lang ? (int) $edit_lang->id : 0; ?>">
 
+            <!-- ── Quick Preset Selector ────────────────────────────────── -->
+            <div class="mml-lang-picker" style="margin:12px 0 20px; padding:14px 16px; background:#f6f7f7; border:1px solid #ddd; border-radius:4px; max-width:480px;">
+                <label style="display:block; font-weight:600; margin-bottom:8px;"><?php esc_html_e( '🌐 Select from preset list:', 'my-multilang' ); ?></label>
+                <input type="text" id="mml-lang-search" placeholder="<?php esc_attr_e( 'Search language name or code…', 'my-multilang' ); ?>"
+                    style="width:100%; margin-bottom:6px; padding:5px 8px; border:1px solid #bbb; border-radius:3px;" autocomplete="off">
+                <select id="mml-lang-preset" size="5" style="width:100%; padding:4px;">
+                    <!-- populated by mml-admin.js from mmlAdmin.langRegistry -->
+                </select>
+                <p style="margin:6px 0 0; font-size:11px; color:#888;"><?php esc_html_e( 'Choosing a preset auto-fills the fields below. You can still edit them manually.', 'my-multilang' ); ?></p>
+            </div>
+
             <table class="form-table" role="presentation">
                 <tr>
                     <th><label for="lang_name"><?php esc_html_e( 'Language Name', 'my-multilang' ); ?></label></th>
@@ -94,7 +127,16 @@
                         <input type="text" id="lang_code" name="lang_code" class="small-text" maxlength="10" required
                             value="<?php echo $edit_lang ? esc_attr( $edit_lang->code ) : ''; ?>"
                             placeholder="en">
-                        <p class="description"><?php esc_html_e( 'Lowercase, e.g. en, zh, ru', 'my-multilang' ); ?></p>
+                        <p class="description"><?php esc_html_e( 'Lowercase, e.g. en, zh-cn, ru', 'my-multilang' ); ?></p>
+                    </td>
+                </tr>
+                <tr>
+                    <th><label for="lang_ai_name"><?php esc_html_e( 'AI Name (English)', 'my-multilang' ); ?></label></th>
+                    <td>
+                        <input type="text" id="lang_ai_name" name="lang_ai_name" class="regular-text"
+                            value="<?php echo $edit_lang ? esc_attr( $edit_lang->ai_name ?? '' ) : ''; ?>"
+                            placeholder="<?php esc_attr_e( 'e.g. English, Korean, Thai', 'my-multilang' ); ?>">
+                        <p class="description"><?php esc_html_e( 'English language name. Used when building AI translation prompts and in confirmation dialogs.', 'my-multilang' ); ?></p>
                     </td>
                 </tr>
                 <tr>

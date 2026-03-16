@@ -3,8 +3,9 @@
  * Plugin Name:  My Multilang
  * Plugin URI:   https://github.com/quangnnd2604/nhom_kinh
  * Description:  Custom lightweight multilingual plugin optimised for Flatsome + WooCommerce. No WPML, no Polylang.
- * Version:      1.2.0
- * Author:       Nhóm Kính Dev
+ * Version:      1.3.0
+ * Author:       quangnnd (Smartlinks)
+ * Author URI:   https://smartlinks.vn
  * Text Domain:  my-multilang
  * Domain Path:  /languages
  * Requires PHP: 7.4
@@ -16,13 +17,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
-define( 'MML_VERSION', '1.2.0' );
+define( 'MML_VERSION', '1.3.0' );
 define( 'MML_PATH',    plugin_dir_path( __FILE__ ) );
 define( 'MML_URL',     plugin_dir_url( __FILE__ ) );
 
 // ── Autoload ───────────────────────────────────────────────────────────────
 $mml_files = [
     // Core
+    MML_PATH . 'includes/mml-language-registry.php',
     MML_PATH . 'includes/class-mml-installer.php',
     MML_PATH . 'includes/class-mml-languages.php',
     MML_PATH . 'includes/class-mml-strings.php',
@@ -201,7 +203,7 @@ function mml_detect_language(): void {
         define( 'MML_LANG', $lang );
     }
 
-    // Debug: log detected language to PHP error log (only when WP_DEBUG_LOG is on)
+    // Emit a diagnostic log entry when WP_DEBUG_LOG is enabled — zero cost in production.
     if ( defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
         $source = isset( $_GET['lang'] ) // phpcs:ignore
             ? '?lang=' . sanitize_key( wp_unslash( $_GET['lang'] ) ) // phpcs:ignore

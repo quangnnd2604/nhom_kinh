@@ -34,8 +34,13 @@
                 <span class="description" style="font-weight:normal;">
                     — “Sắp xếp theo”, “Tìm kiếm sản phẩm”, sorting labels, pagination
                 </span>
-            </label>
-        </div>
+            </label>            <label class="mml-target-check">
+                <input type="checkbox" id="mml-target-orphaned" checked>
+                Scan <strong>Orphaned Shortcodes</strong> trong bài viết
+                <span class="description" style="font-weight:normal;">
+                    — Tìm <code>[my_trans]</code> có key đã bị xóa khỏi String Translation (chuỗi mồ côi)
+                </span>
+            </label>        </div>
 
         <div class="mml-scan-controls" style="margin-top:14px;">
             <button id="mml-start-scan" class="button button-primary button-large">▶ Scan Plugin &amp; System Strings</button>
@@ -106,6 +111,54 @@
         <div id="mml-process-result" class="notice" style="display:none; margin-top:16px; padding:12px 16px;"></div>
     </div>
 
+    <!-- ── Orphaned Shortcodes Panel ─────────────────────────────────────── -->
+    <div id="mml-orphaned-panel" class="mml-card" style="display:none; margin-top:20px;">
+        <h2>🔍 Chuỗi mồ côi (Cần khôi phục)</h2>
+        <p class="description">
+            Các shortcode <code>[my_trans]</code> dưới đây vẫn còn trong nội dung bài viết nhưng
+            <strong>key đã bị xóa</strong> khỏi <em>String Translation</em>.
+            Frontend hiện đang hiển thị văn bản gốc từ thuộc tính <code>original=</code> (nếu có).
+            Nhấn <strong>Khôi phục</strong> để đăng ký lại key vào wp_my_strings và dịch tự động.
+        </p>
+
+        <div class="mml-results-toolbar">
+            <label>
+                <input type="checkbox" id="mml-orphaned-select-all"> Select All
+            </label>
+            <span id="mml-orphaned-count-wrap" style="margin-left:12px; color:#646970;">
+                <span id="mml-orphaned-num">0</span> chuỗi mồ côi
+            </span>
+            <button id="mml-orphaned-recover-btn" class="button button-primary" style="margin-left:auto;" disabled>
+                ↩ Khôi phục Đã Chọn
+            </button>
+        </div>
+
+        <div class="mml-table-scroll" style="margin-top:12px;">
+            <table class="wp-list-table widefat fixed striped mml-results-table">
+                <thead>
+                    <tr>
+                        <th style="width:32px;"></th>
+                        <th style="width:26%;">Key (đã mất)</th>
+                        <th style="width:38%;">Văn bản gốc (original attribute)</th>
+                        <th>Nguồn</th>
+                    </tr>
+                </thead>
+                <tbody id="mml-orphaned-tbody">
+                    <!-- Rows injected by JS -->
+                </tbody>
+            </table>
+        </div>
+
+        <div id="mml-orphaned-progress" style="display:none; margin-top:16px;">
+            <div class="mml-progress-bar-track">
+                <div id="mml-orphaned-bar" class="mml-progress-bar" style="width:0%"></div>
+            </div>
+            <p id="mml-orphaned-status" class="description" style="margin-top:6px;">Đang khôi phục…</p>
+        </div>
+
+        <div id="mml-orphaned-result" class="notice" style="display:none; margin-top:16px; padding:12px 16px;"></div>
+    </div>
+
     <!-- ── Manual Add String (Feature B) ─────────────────────────────────── -->
     <div class="mml-card" style="margin-top:20px;">
         <h2>➕ Manually Add String</h2>
@@ -135,109 +188,75 @@
     <div class="mml-card mml-danger-zone" style="margin-top:24px;">
         <h2>🗑️ Restore Sessions</h2>
         <p class="description">
-            Each time you run “Process Approved Items”, the registered string keys are logged here.
-            <strong>Restore</strong> removes the registered string keys from the system,
-            effectively reverting the interception — original plugin strings reappear on the frontend.
-            <strong>Discard</strong> deletes this log without removing any registered strings.
+            Each time you run &#8220;Process Approved Items&#8221;, a restore session is logged here.
+            <strong>Preview</strong> shows the original texts that were registered.
+            <strong>Restore</strong> reverts post content to the original <em>and</em> removes all auto-scanned strings.
+            <strong>Discard</strong> deletes the log without changing anything.
         </p>
 
-        <div id="mml-sessions-list">
-            <?php if ( empty( $sessions ) ) : ?>
-                <p style="color:#646970;" id="mml-no-sessions">No backup sessions yet.</p>
-            <?php else : ?>
+        <div class="mml-global-restore-bar">
+            <button id="mml-global-restore-btn" class="button button-large mml-global-restore-btn">
+                <span class="dashicons dashicons-undo"></span>
+                Restore All to Original Language
+            </button>
+            <span class="description">Reverts all backed-up post content to original — registered translations in wp_my_strings are preserved.</span>
+        </div>
+
+        <table id="mml-sessions-table" class="wp-list-table widefat fixed striped"<?php echo empty( $sessions ) ? ' style="display:none;"' : ''; ?>>
+            <thead>
+                <tr>
+                    <th class="mml-col-date">Date</th>
+                    <th>Content</th>
+                    <th class="mml-col-actions">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="mml-sessions-list">
                 <?php foreach ( $sessions as $session ) : ?>
                     <?php
-                    $dt = new DateTime( $session->created_at );
-                    $label = $dt->format( 'Y-m-d H:i' ) . ' — ' . (int) $session->post_count . ' post(s)';
+                    $dt    = new DateTime( $session->created_at );
+                    $count = $session->key_count > 0
+                             ? (int) $session->key_count . ' keys'
+                             : (int) $session->post_count . ' entries';
                     ?>
-                    <div class="mml-session-row" data-sid="<?php echo esc_attr( $session->session_id ); ?>">
-                        <span class="mml-session-label">
-                            <?php
-                            $dt    = new DateTime( $session->created_at );
-                            $count = isset( $session->key_count ) && $session->key_count > 0
-                                     ? (int) $session->key_count . ' chuỗi'
-                                     : (int) $session->post_count . ' bài';
-                            echo esc_html( $dt->format( 'Y-m-d H:i' ) . ' — ' . $count );
-                            ?>
-                        </span>
-                        <button class="button mml-restore-btn"
-                                data-sid="<?php echo esc_attr( $session->session_id ); ?>">
-                            ↩ Restore
-                        </button>
-                        <button class="button mml-discard-btn"
-                                data-sid="<?php echo esc_attr( $session->session_id ); ?>">
-                            🗑 Discard
-                        </button>
-                    </div>
+                    <tr class="mml-session-row" data-sid="<?php echo esc_attr( $session->session_id ); ?>">
+                        <td>
+                            <strong><?php echo esc_html( $dt->format( 'Y-m-d H:i' ) ); ?></strong><br>
+                            <span class="mml-session-meta"><?php echo esc_html( $count ); ?></span>
+                        </td>
+                        <td>
+                            <div class="mml-session-content-summary">
+                                <?php if ( ! empty( $session->posts ) ) : ?>
+                                    <?php foreach ( $session->posts as $p ) : ?>
+                                        <div class="mml-session-post-line">
+                                            <code class="mml-type-badge"><?php echo esc_html( $p['post_type'] ); ?></code>
+                                            <?php echo esc_html( $p['post_title'] ); ?>
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php else : ?>
+                                    <em class="mml-no-posts-label">Options / gettext strings only</em>
+                                <?php endif; ?>
+                            </div>
+                            <div class="mml-preview-panel" data-sid="<?php echo esc_attr( $session->session_id ); ?>" style="display:none;"></div>
+                        </td>
+                        <td class="mml-session-actions">
+                            <button class="button mml-preview-btn" data-sid="<?php echo esc_attr( $session->session_id ); ?>">
+                                <span class="dashicons dashicons-visibility"></span> Preview
+                            </button>
+                            <button class="button mml-restore-btn" data-sid="<?php echo esc_attr( $session->session_id ); ?>">
+                                <span class="dashicons dashicons-backup"></span> Restore
+                            </button>
+                            <button class="button mml-discard-btn" data-sid="<?php echo esc_attr( $session->session_id ); ?>">
+                                <span class="dashicons dashicons-trash"></span> Discard
+                            </button>
+                        </td>
+                    </tr>
                 <?php endforeach; ?>
-            <?php endif; ?>
-        </div>
+            </tbody>
+        </table>
+
+        <p id="mml-no-sessions" style="color:#646970;<?php echo ! empty( $sessions ) ? 'display:none;' : ''; ?>">No backup sessions yet.</p>
 
         <div id="mml-restore-result" class="notice" style="display:none; margin-top:12px; padding:10px 16px;"></div>
     </div>
 
-    <!-- ── Phase D: Rescue Scanner (one-time shortcode upgrade) ─────────── -->
-    <div class="mml-card" style="margin-top:24px;">
-        <h2>🚑 Rescue Scanner — Upgrade Shortcodes</h2>
-        <p class="description">
-            Old <code>[my_trans key="X"]</code> shortcodes were created without a fallback
-            <code>original</code> attribute. If the key is ever deleted from
-            <strong>String Translation</strong>, the frontend shows a blank.
-            <br><br>
-            <strong>Step 1 — Scan</strong> detects which shortcodes need upgrading and which
-            are already broken (key deleted, no original text available).<br>
-            <strong>Step 2 — Upgrade All</strong> rewrites every upgradeable shortcode in-place
-            to <code>[my_trans key="X" original="Văn bản gốc"]</code> so future key deletions
-            always fall back to the original Vietnamese text.
-        </p>
-
-        <div style="margin-top:12px; display:flex; gap:10px; align-items:center;">
-            <button id="mml-rescue-scan-btn" class="button button-secondary">
-                🔍 Step 1 — Scan for Old Shortcodes
-            </button>
-            <button id="mml-rescue-upgrade-btn" class="button button-primary" style="display:none;">
-                ⬆ Step 2 — Upgrade All Upgradeable
-            </button>
-            <span id="mml-rescue-status" style="color:#646970;"></span>
-        </div>
-
-        <div id="mml-rescue-progress-wrap" style="display:none; margin-top:12px;">
-            <div class="mml-progress-bar-track">
-                <div id="mml-rescue-bar" class="mml-progress-bar" style="width:0%"></div>
-            </div>
-        </div>
-
-        <div id="mml-rescue-results" style="display:none; margin-top:16px;">
-            <div id="mml-rescue-upgradeable-panel" style="display:none;">
-                <h4 style="margin-bottom:6px; color:#00a32a;">✅ Upgradeable
-                    (<span id="mml-rescue-upgradeable-count">0</span>)</h4>
-                <p class="description">These shortcodes have their key in the DB.
-                    "Upgrade All" will add the <code>original=</code> attribute automatically.</p>
-                <table class="wp-list-table widefat fixed striped" style="margin-top:8px;">
-                    <thead><tr>
-                        <th style="width:30%;">Key</th>
-                        <th style="width:40%;">Vietnamese Text (will become <code>original</code>)</th>
-                        <th>Post</th>
-                    </tr></thead>
-                    <tbody id="mml-rescue-upgradeable-tbody"></tbody>
-                </table>
-            </div>
-            <div id="mml-rescue-unresolvable-panel" style="display:none; margin-top:16px;">
-                <h4 style="margin-bottom:6px; color:#d63638;">⚠ Unresolvable
-                    (<span id="mml-rescue-unresolvable-count">0</span>)</h4>
-                <p class="description">These shortcodes have no key in the DB and no
-                    <code>original=</code> attribute. The text cannot be recovered automatically.
-                    Use <strong>Manually Add String</strong> above to re-register the key.</p>
-                <table class="wp-list-table widefat fixed striped" style="margin-top:8px;">
-                    <thead><tr>
-                        <th style="width:40%;">Key (missing from DB)</th>
-                        <th>Post</th>
-                    </tr></thead>
-                    <tbody id="mml-rescue-unresolvable-tbody"></tbody>
-                </table>
-            </div>
-        </div>
-
-        <div id="mml-rescue-upgrade-result" class="notice" style="display:none; margin-top:12px; padding:10px 16px;"></div>
-    </div>
 </div>

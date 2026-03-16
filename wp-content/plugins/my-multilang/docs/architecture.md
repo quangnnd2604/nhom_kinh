@@ -329,6 +329,57 @@ See §11–14 for full details. Summary:
 - **Rescue Scanner** (Phase D in `admin/views/scanner.php`): scans for old-format `[my_trans key="X"]` shortcodes without `original=`, looks up the VI translation in `wp_my_strings`, and rewrites them to the new format.
 - **Version bump**: `MML_VERSION = '1.2.0'`; `mml_version` option updated in DB; JS cache busted.
 
+### v1.2.2: Golden Source Enforcement (Added)
+- `MML_Cloner::clone_post()` and `clone_term()` now include a **Golden Source Guard** that resolves non-default-language source IDs to their canonical default-language original before cloning begins. Returns `WP_Error('no_source')` if no default-language original is found in the translation group.
+- `MML_Magic_Sync::ajax_discover()` filters both the term and post loops via `MML_Translations::get_lang_for_object()` — only default-language items (or unregistered items) are added to the queue.
+- `MML_Magic_Sync::ajax_execute_item()` adds a second safety gate per item before executing, guarding against stale queue data from previous-version discovers.
+
+### v1.2.3: Language Deletion Safety Protocol (Added)
+
+Deleting a language now follows a mandatory **three-step sequence** enforced in `MML_Admin::handle_delete_language()`. Attempting to delete a language that still has content clones is refused with a descriptive notice and a direct link to Magic Sync.
+
+**Step 1 — Clone Detection (`MML_Languages::count_clones(string $code): int`)**
+Queries `wp_my_translations` for the count of all objects (posts and terms) registered under the target language code. If the count is > 0, the deletion is aborted and the admin is redirected back to the Language Manager with `error_type=has_clones`, `error_lang`, and `error_count` query parameters. The Language Manager view renders a blocking error notice:
+
+> *"Hiện đang có N bản clone … liên quan đến ngôn ngữ "XX". Bạn phải thực hiện xóa tất cả bản clone …"*
+> [⚡ Đi đến Magic Sync → Danger Zone để xóa tất cả bản sao "XX"]
+
+**Step 2 — String Translation Purge (`MML_Languages::purge_string_translations(string $code): void`)**
+Iterates every row in `wp_my_strings`, decodes the JSON `translations` blob, removes the key matching `$code`, and writes the updated JSON back. Runs before the language row is deleted so no ghost translation values remain in the strings table. Flushes `MML_Strings` cache afterwards.
+
+**Step 3 — Language Row Deletion (`MML_Languages::delete(int $id): bool|WP_Error`)**
+The existing method — deletes the `wp_my_languages` row and invalidates the static cache.
+
+**UX change:** The success redirect message was updated to *"Language deleted (strings purged)."* to make the string-cleanup step visible to the admin.
+
+**New methods added to `MML_Languages`:**
+
+| Method | Purpose |
+|---|---|
+| `get_by_id( int $id ): ?object` | Cache-backed lookup by primary key |
+| `count_clones( string $code ): int` | Counts objects in `wp_my_translations` for a lang code |
+| `purge_string_translations( string $code ): void` | Strips a lang's key from all `wp_my_strings` JSON blobs |
+
+### v1.3.0: Auto-Translate Missing Strings, Scanner Phase A/B/C, Final Cleanup (Added)
+
+**Auto-Translate Missing Strings** (`MML_Admin::ajax_auto_translate_strings()`):
+- New AJAX endpoint `mml_auto_translate_strings` reads the default-language value for every string key that has no translation for a chosen target language, calls `MML_Auto_Translate::translate()` on each, and writes the result back (no-overwrite rule — existing translations are never clobbered).
+- UI: language selector + "Dịch tự động …" button + live progress bar added to the String Translation admin view (`admin/views/strings.php`).
+- JS: `bindAutoTranslate()` / `_runAutoTranslate()` loop in `admin/assets/admin.js` with batch size 20 and 1.8 s post-completion reload.
+- `mmlAdmin.i18n` extended with five new keys; all `\u2026` Unicode escape sequences replaced with literal `…` characters throughout (PHP does not support `\uXXXX` escapes).
+
+**Scanner 3-Phase Rewrite (`MML_Scanner::extract_from_content()`)**:
+- Phase A — Shortcode attribute values (existing behaviour preserved).
+- Phase B — Inline-tag isolation: strips `<strong>`, `<em>`, `<span>`, `<a>` wrappers to surface short labels hidden inside inline HTML.
+- Phase C — Block-boundary segmentation: splits on `<br>`, `</p>`, `</div>` etc. to detect short UI labels that span a single block element.
+- New private `add_candidate()` helper applies dual acceptance criteria: Vietnamese diacritics present **OR** UI-label pattern (ends with `:`, 2–60 chars). Prevents flooding the string table with noise.
+
+**Final cleanup:**
+- `test_gg.php` (standalone Google Translate API dev test) deleted — was never referenced by the plugin.
+- Informal `// Debug:` comment in `my-multilang.php` rephrased to `// Emit a diagnostic log entry when WP_DEBUG_LOG is enabled`.
+- `MML_Auto_Translate::translate_array()` removed — was defined but had zero call sites; batch iteration is handled inline by the AJAX handler.
+- All PHP files pass `php -l` syntax check.
+
 ---
 
 ## 10. Magic Sync Engine (Batch Auto-Translate)
@@ -605,3 +656,199 @@ add_action( 'admin_notices', function () {
 | `rem_cat_view_all` | "Xem tất cả" view-all link on `[rem_category_grid]` |
 
 These 5 keys are inserted with `INSERT IGNORE` so re-seeding is always safe and idempotent.
+
+---
+
+## 15. Golden Rules of Multilang Development
+
+> **Phải tuân thủ tuyệt đối — These rules are the Core Constitution of this plugin.**
+> Every new feature must be verified against this checklist before a single line of code is written.
+
+---
+
+### RULE 1 — GOLDEN SOURCE CLONING (The Master Rule)
+
+**Definition:** Every cloning, syncing, or translation action MUST use the **Default Language** version (Golden Source) as the ONLY authoritative input. All content, titles, slugs, and metadata for a new language are derived exclusively from the default-language object.
+
+**Constraints:**
+- Never clone from a clone. `vi → en` is valid. `en → ko` is **forbidden**.
+- Never use a translated version as the input for a new translation.
+- The `is_default = 1` row in `wp_my_languages` is the single source of truth at runtime. Use `MML_Languages::get_default_code()` — never hardcode `'vi'`.
+
+**Implementation Checkpoints:**
+
+| Layer | Guard | Added in |
+|---|---|---|
+| `MML_Cloner::clone_post()` | Calls `MML_Translations::get_lang_for_object($source_id, 'post')`. If result is non-null and not `$default_lang`, resolves the canonical default-language post via `get_translated_id()` before proceeding. Returns `WP_Error('no_source')` if no canonical origin is found. | v1.2.2 |
+| `MML_Cloner::clone_term()` | Same guard for terms: resolves the default-language original from the same translation group. | v1.2.2 |
+| `MML_Magic_Sync::ajax_discover()` | Term loop and post loop both call `get_lang_for_object()` and skip any item where `lang_code !== null && lang_code !== $default_lang`. Only VI originals (and unregistered objects) enter the queue. | v1.2.2 |
+| `MML_Magic_Sync::ajax_execute_item()` | Safety gate for both post and term branches: if the received queue item is a non-default clone, resolve the VI source before cloning. Returns error if no source found. | v1.2.2 |
+
+**Defense-in-depth:** The guard exists at BOTH the high level (`ajax_discover`) AND the low level (`clone_post`/`clone_term`). Adding a new entry point (e.g. a WP-CLI command or REST endpoint) does not require new guards — the Cloner enforces the rule for every caller automatically.
+
+---
+
+### RULE 2 — SMART SHORTCODE FALLBACK
+
+**Definition:** All translatable content fragments must be stored using the `[my_trans]` shortcode with an `original=` fallback attribute so that the frontend never displays a blank or a raw key sentinel.
+
+**Required format:**
+```
+[my_trans key="UNIQUE_KEY" original="Văn bản gốc Tiếng Việt"]
+```
+
+**Constraints:**
+- The `original=` attribute MUST hold the **Vietnamese (default-language) text** as written at scan time.
+- `MML_Strings::get_value()` returns the sentinel `'[key]'` when a key is missing from the DB. The shortcode renderer detects this and falls back to `original=` instead of returning an empty string — see `render_my_trans()` in §12.
+- Old-format shortcodes without `original=` must be upgraded with the Rescue Scanner (§13) before they can benefit from this fallback.
+- Any new code that programmatically inserts shortcodes into `post_content` MUST include the `original=` attribute.
+
+---
+
+### RULE 3 — ATOMIC RESTORATION & CLEANUP
+
+**Definition:** The "Restore All" operation must be executed as a single, **ordered, atomic sequence**. Partial restores that leave the DB in a mixed state are not acceptable.
+
+**Required sequence (must not be reordered):**
+1. **SELECT** the Golden Source row (oldest backup per `post_id`) from `wp_mml_backups`.
+2. **Restore** `post_content` from the Golden Source row for every backed-up post via `wp_update_post()`.
+3. **DELETE** all `wp_my_strings` rows where `is_autoscanned = 1` (auto-scanned keys added during any session).
+4. **Re-seed** protected system strings: `seed_wc_result_count_strings()` + `seed_rem_category_grid_strings()` — these must NEVER be wiped.
+5. **TRUNCATE** `wp_mml_backups` so the next scan session starts from a clean state.
+
+**Constraints:**
+- Steps 3 and 4 form an inseparable pair: delete-then-reseed. Deleting without reseeding breaks WooCommerce and theme output.
+- Manually-created string keys (`is_autoscanned = 0`) are **never deleted** by a Restore.
+- The restore flow is implemented in `MML_Backup::restore_session()`. Do not duplicate or split this logic.
+
+---
+
+### RULE 4 — PRE-FLIGHT CONFIRMATION (Magic Sync)
+
+**Definition:** Any AI-assisted batch operation (Magic Sync) that will create, modify, or delete content for a target language MUST show a UI confirmation modal to the admin before any processing begins.
+
+**Required modal content:**
+- Target language name and code: **"Ngôn ngữ đích: Korean (ko)"**
+- A live sample translation demonstrating the source-to-target: `"Xin chào" → "[Korean equivalent]"`
+- A warning about the scope and irreversibility of the operation
+- Two action buttons: **Hủy bỏ** (abort) and **✔ Xác nhận & Bắt đầu** (confirm and start)
+
+**Constraints:**
+- The actual AJAX discovery call must only fire when the admin clicks **Xác nhận & Bắt đầu** — never on the initial button press.
+- The `exampleMap` object (populated from `mml_language_registry_by_code()`) provides the sample translation per language code. If a language is not in the registry, the modal still shows the language name/code but omits the sample line.
+- Implemented in `admin/class-mml-magic-sync-ui.php`. The `<option>` tags have `data-name` and `data-ai` attributes used by the modal JavaScript.
+
+---
+
+### RULE 5 — ZERO HARDCODE (Strings & Paths)
+
+**Definition:** No user-visible string, no file system path, and no language comparison value may be written literally in PHP or JavaScript source code.
+
+**PHP strings:** Every string shown to the user (error messages, status text, labels) passed through `wp_send_json_*`, `wp_die()`, or echoed to the browser **MUST** be wrapped with `__( '...', 'my-multilang' )`, `_e()`, or `esc_html__()` so it can be translated via `.po`/`.mo` files.
+
+```php
+// ✅ Correct
+wp_send_json_error( __( 'Permission denied.', 'my-multilang' ) );
+
+// ❌ Wrong — bare string bypasses i18n
+wp_send_json_error( 'Permission denied.' );
+```
+
+**JavaScript strings:** All user-visible JS strings must be passed from PHP to JS via `wp_localize_script` under the `mmlAdmin.i18n` sub-object (for `admin.js`) or a dedicated PHP-generated JS variable (for inline scripts like `class-mml-magic-sync-ui.php` → `mmlSyncI18n`). Never embed Vietnamese or English UI text directly in `.js` files.
+
+```php
+// ✅ Pass from PHP
+'i18n' => [ 'serverError' => __( 'Server error.', 'my-multilang' ) ]
+
+// ✅ Use in JS
+alert( mmlAdmin.i18n.serverError );
+
+// ❌ Wrong — hardcoded in JS
+alert( 'Lỗi server.' );
+```
+
+**Table names:** Always use `$wpdb->prefix . 'table_name'` — never write `wp_` prefixes literally.
+
+**Paths:** Use `plugin_dir_path( __FILE__ )`, `plugin_dir_url( __FILE__ )`, or WordPress constants. Never hardcode `/Applications/...` or similar absolute paths.
+
+**Language code checks:** Never compare against a hardcoded language code (e.g., `=== 'vi'`) in application logic. Use the registry helpers (`get_default_language_code()`, `mml_language_registry_by_code()`) instead.
+
+---
+
+### Pre-Coding Checklist
+
+Before writing or reviewing any code that touches content sync, cloning, slug generation, or translation:
+
+- [ ] **R1** — Am I sourcing content from the default-language object? Have I called `get_lang_for_object()` and resolved the canonical ID?
+- [ ] **R2** — If I am inserting a `[my_trans]` shortcode programmatically, does it include `original="..."`?
+- [ ] **R3** — If I am modifying the restore flow, is the delete-then-reseed sequence intact and in the correct order?
+- [ ] **R4** — If I am adding or modifying a batch AI operation, is there a modal confirmation step before any destructive work begins?
+- [ ] **R5** — Are all new user-facing strings wrapped in `__()` / `_e()` in PHP? Are all new JS UI strings added to `mmlAdmin.i18n` (or a named i18n object for inline scripts)?
+
+---
+
+## 16. String Translation System (`wp_my_strings`)
+
+### Overview
+
+The String Translation system manages short, reusable text strings that appear across the frontend (headers, labels, CTAs, etc.). Strings are stored in `wp_my_strings` as `string_key` + a JSON `translations` blob keyed by language code. The shortcode `[my_trans key="X"]` renders the correct language version at runtime.
+
+### Admin UI (`admin/views/strings.php`)
+
+Rendered at **Multilang → String Translations** (`page=mml-strings`). Provides:
+
+| Action | Mechanism |
+|---|---|
+| Add key | AJAX `mml_add_string` → `MML_Admin::ajax_add_string()` |
+| Edit/save translations | Form POST `mml_save_strings` → `MML_Admin::handle_save_strings()` |
+| Delete key + all translations | AJAX `mml_delete_string` → `MML_Admin::ajax_delete_string()` |
+| **Auto-fill missing** | AJAX `mml_auto_translate_strings` → `MML_Admin::ajax_auto_translate_strings()` *(v1.3.0)* |
+
+### Auto-Translate Missing Strings (v1.3.0 — Self-Healing/Auto-Fill)
+
+Allows the admin to fill every empty translation cell for a selected target language with a single button click, without touching existing translations.
+
+#### UI
+
+A panel above the strings table contains:
+- A `<select>` listing all non-default languages from `wp_my_languages`
+- A **"Dịch tự động các chuỗi chưa dịch"** button
+- An inline progress bar + status text
+- A result notice (success / info / error) shown on completion
+
+#### Backend: `MML_Admin::ajax_auto_translate_strings()`
+
+**Hook:** `wp_ajax_mml_auto_translate_strings`
+
+**Algorithm (per batch call):**
+
+1. Validate nonce (`mml_admin_nonce`) and `manage_options` capability.  
+2. Reject if `lang_code` equals `MML_Languages::get_default_code()` — never translate *to* the default language.  
+3. Fetch all rows from `wp_my_strings`.  
+4. Filter to only rows where:  
+   - `translations[$target_lang]` is empty/null (missing)  
+   - `translations[$default_lang]` is non-empty (has source text to translate from)  
+5. Slice the first **20 rows** (batch size).  
+6. For each row call `MML_Auto_Translate::translate( $source, $default_lang, $target_lang )`.  
+7. Write only the new key back into the JSON blob — **existing language values are never modified**.  
+8. Call `MML_Strings::update()` which flushes the PHP cache.  
+9. `usleep(150000)` between API calls to respect rate limits.  
+10. Return JSON: `{ translated, total_missing, remaining, done }`.
+
+**Golden Source enforcement:** Source text is always read from `$translations[$default_lang]` — the same language that was used as the authoritative source when the string was first registered. No cloning chain possible.
+
+#### Frontend: `MMLAdmin.bindAutoTranslate()` / `_runAutoTranslate()`
+
+- Calls `runBatch()` recursively (via `setTimeout(runBatch, 300)`) until `res.data.done === true`.
+- Accumulates `totalTranslated` across batches and updates the progress bar.
+- On completion: shows success notice, then reloads the page after 1.8 s so textareas display the new translations.
+- On "nothing to translate": shows an info-level notice without reloading.
+
+#### Constraint: No-Overwrite Rule
+
+```
+if ( $target_text === '' && $source_text !== '' ) → translate and write
+if ( $target_text !== '' )                        → SKIP — never overwrite
+```
+
+This is enforced entirely server-side, making it safe to re-run at any time.
